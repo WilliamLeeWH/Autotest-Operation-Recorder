@@ -37,7 +37,7 @@ npm run cli -- analyze --video out/<session>/recording/video.mp4
 
 ## 退出码
 
-0 成功 / 1 一般失败 / 2 配置错误。stdout 输出稳定行（`output:` / `video:` / `steps:` / `failure:`），诊断日志走 stderr，`--verbose` 开启。
+0 成功 / 1 一般失败 / 2 配置错误。stdout 输出稳定行（`output:` / `video:` / `screenshots:` / `steps:` / `failure:`），诊断日志走 stderr，`--verbose` 开启。
 
 ## 开发
 

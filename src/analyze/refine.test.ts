@@ -81,4 +81,14 @@ describe('analyzeVideo', () => {
     }
     expect(fs.existsSync(path.join(outDir, 'steps.json'))).toBe(false);
   });
+
+  it('模型调用抛错时清理临时帧目录', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const before = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-'));
+    const caller = async () => { throw new Error('network down'); };
+    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller })).rejects.toThrow('network down');
+    const after = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-'));
+    expect(after).toEqual(before);
+  });
 });

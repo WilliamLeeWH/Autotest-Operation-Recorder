@@ -67,55 +67,58 @@ function parseModelOutput(raw: string): { ok: true; steps: Step[] } | { ok: fals
 export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult> {
   const cfg = opts.cfg;
   const framesDir = await fs.mkdtemp(path.join(os.tmpdir(), 'oprec-frames-'));
-  const frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, ...cfg.frame });
+  try {
+    const frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, ...cfg.frame });
 
-  const template = await loadPromptTemplate(cfg.vlm.inputMode);
-  const prompt = buildUserMessage(template, { mode: cfg.vlm.inputMode, frameCount: frames.frameCount });
-  const caller = opts.caller ?? createVlmCaller(cfg);
-  const rounds = cfg.vlm.maxRetry + 1;
+    const template = await loadPromptTemplate(cfg.vlm.inputMode);
+    const prompt = buildUserMessage(template, { mode: cfg.vlm.inputMode, frameCount: frames.frameCount });
+    const caller = opts.caller ?? createVlmCaller(cfg);
+    const rounds = cfg.vlm.maxRetry + 1;
 
-  let attemptOutput = '';
-  let lastErrors = ['模型未返回任何内容'];
-  let modelRawOutput = '';
+    let attemptOutput = '';
+    let lastErrors = ['模型未返回任何内容'];
+    let modelRawOutput = '';
 
-  for (let i = 0; i < rounds; i += 1) {
-    const userPrompt = i === 0 ? prompt : `${prompt}\n\n注意：上一轮输出未通过校验，错误如下：\n${lastErrors.join('\n')}\n请重新生成完整的 JSON。`;
-    modelRawOutput = await caller(cfg, {
-      mode: cfg.vlm.inputMode,
-      frames: frames.framePaths,
-      videoPath: opts.videoPath,
-      prompt: userPrompt,
-    });
-    attemptOutput = modelRawOutput;
-    const v = parseModelOutput(modelRawOutput);
-    if (v.ok) {
-      const steps = finalizeSteps(v.steps);
-      const session = await readSessionMeta(opts.outDir);
-      const data: StepsFile = {
-        version: '1.0',
-        meta: {
-          generated_at: new Date().toISOString(),
-          target_url: session?.targetUrl ?? '',
-          video: path.relative(opts.outDir, opts.videoPath).replace(/\\/g, '/'),
-          model: cfg.vlm.model,
-          input_mode: cfg.vlm.inputMode,
-          frame_count: frames.frameCount,
-        },
-        steps,
-      };
-      // 完整装配后走一遍严格文件级 schema：内部不变式检查，失败说明装配逻辑自身有误
-      const strictCheck = validateSteps(data);
-      if (!strictCheck.ok) {
-        throw new Error(`装配后的 StepsFile 未通过严格校验：${strictCheck.errors.join('; ')}`);
+    for (let i = 0; i < rounds; i += 1) {
+      const userPrompt = i === 0 ? prompt : `${prompt}\n\n注意：上一轮输出未通过校验，错误如下：\n${lastErrors.join('\n')}\n请重新生成完整的 JSON。`;
+      modelRawOutput = await caller(cfg, {
+        mode: cfg.vlm.inputMode,
+        frames: frames.framePaths,
+        videoPath: opts.videoPath,
+        prompt: userPrompt,
+      });
+      attemptOutput = modelRawOutput;
+      const v = parseModelOutput(modelRawOutput);
+      if (v.ok) {
+        const steps = finalizeSteps(v.steps);
+        const session = await readSessionMeta(opts.outDir);
+        const data: StepsFile = {
+          version: '1.0',
+          meta: {
+            generated_at: new Date().toISOString(),
+            target_url: session?.targetUrl ?? '',
+            video: path.relative(opts.outDir, opts.videoPath).replace(/\\/g, '/'),
+            model: cfg.vlm.model,
+            input_mode: cfg.vlm.inputMode,
+            frame_count: frames.frameCount,
+          },
+          steps,
+        };
+        // 完整装配后走一遍严格文件级 schema：内部不变式检查，失败说明装配逻辑自身有误
+        const strictCheck = validateSteps(data);
+        if (!strictCheck.ok) {
+          throw new Error(`装配后的 StepsFile 未通过严格校验：${strictCheck.errors.join('; ')}`);
+        }
+        const stepsPath = await writeSteps(opts.outDir, data, cfg.output.format);
+        return { ok: true, stepsPath, data };
       }
-      const stepsPath = await writeSteps(opts.outDir, data, cfg.output.format);
-      await fs.rm(framesDir, { recursive: true, force: true }).catch(() => {});
-      return { ok: true, stepsPath, data };
+      lastErrors = v.errors;
     }
-    lastErrors = v.errors;
-  }
 
-  const failurePath = await writeFailure(opts.outDir, `模型输出连续 ${rounds} 轮未通过校验`, attemptOutput, frames.frameCount);
-  await fs.rm(framesDir, { recursive: true, force: true }).catch(() => {});
-  return { ok: false, failurePath, reason: lastErrors.join('; '), rawOutput: modelRawOutput, frameCount: frames.frameCount };
+    const failurePath = await writeFailure(opts.outDir, `模型输出连续 ${rounds} 轮未通过校验`, attemptOutput, frames.frameCount);
+    return { ok: false, failurePath, reason: lastErrors.join('; '), rawOutput: modelRawOutput, frameCount: frames.frameCount };
+  } finally {
+    // 无论成功、重试耗尽、还是 extractFrames / 模板 / VLM 调用抛异常，都会清理临时帧目录
+    await fs.rm(framesDir, { recursive: true, force: true }).catch(() => {});
+  }
 }

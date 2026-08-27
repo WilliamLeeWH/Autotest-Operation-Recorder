@@ -118,6 +118,7 @@ export async function main(argv: string[]): Promise<number> {
       const result = await analyzeVideo({ outDir: dirs.outDir, videoPath: recordResult.videoPath, cfg: analyzeCfg });
       stdout(`output: ${dirs.outDir}`);
       stdout(`video: ${recordResult.videoPath}`);
+      stdout(`screenshots: ${recordResult.screenshotCount}`);
       if (result.ok) {
         stdout(`steps: ${result.stepsPath}`);
       } else {
