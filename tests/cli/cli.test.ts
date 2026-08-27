@@ -1,10 +1,22 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { main } from '../../src/cli/index.js';
 import { startVlmStub } from '../fixtures/vlm-stub.js';
 import { startPageServer } from '../fixtures/page-server.js';
+
+const require = createRequire(import.meta.url);
+// 夹具一律用内置二进制生成：开发者机器上不装 ffmpeg 也能跑完整测试
+const FF = require('ffmpeg-static') as string;
+
+function makeTestVideo(outDir: string): string {
+  const video = path.join(outDir, 'src.mp4');
+  execFileSync(FF, ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+  return video;
+}
 
 let stub: { url: string; requests: any[]; close: () => Promise<void> };
 let page: { url: string; close: () => Promise<void> };
@@ -26,10 +38,8 @@ const NO_ENV = '___no_such_env_file___';
 describe('cli main', () => {
   it('analyze（stub VLM）→ 0 且产出 steps.json', async () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-cli-'));
-    // 用 stub 服务器响应，“视频”用 ffmpeg 现场生成
-    const { execFileSync } = await import('node:child_process');
-    const video = path.join(out, 'src.mp4');
-    execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+    // 用 stub 服务器响应，“视频”用内置 ffmpeg 现场生成
+    const video = makeTestVideo(out);
     const envPath = path.join(out, '.env');
     fs.writeFileSync(envPath, [
       `VLM_PROVIDER=openai-compatible`,
@@ -62,9 +72,7 @@ describe('cli main', () => {
 
   it('.env 设 video 模式 + 非视频模型 → 守卫可达返回 2（CLI 默认值不遮蔽 .env）', async () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-cli-'));
-    const { execFileSync } = await import('node:child_process');
-    const video = path.join(out, 'src.mp4');
-    execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+    const video = makeTestVideo(out);
     const envPath = path.join(out, '.env');
     fs.writeFileSync(envPath, [
       `VLM_PROVIDER=openai-compatible`,
@@ -80,9 +88,7 @@ describe('cli main', () => {
 
   it('.env 设 OUTPUT_FORMAT=yaml → 0 且产出 steps.yaml', async () => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-cli-'));
-    const { execFileSync } = await import('node:child_process');
-    const video = path.join(out, 'src.mp4');
-    execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', video]);
+    const video = makeTestVideo(out);
     const envPath = path.join(out, '.env');
     fs.writeFileSync(envPath, [
       `VLM_PROVIDER=openai-compatible`,

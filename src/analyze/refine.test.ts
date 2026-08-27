@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { analyzeVideo, finalizeSteps } from './refine.js';
 import { loadConfig } from '../config/env.js';
@@ -10,10 +11,14 @@ import type { Step } from '../schema/steps.schema.js';
 
 const NO_ENV = '___no_such_env_file___';
 
+const require = createRequire(import.meta.url);
+// 夹具一律用内置二进制生成：开发者机器上不装 ffmpeg 也能跑完整测试
+const FF = require('ffmpeg-static') as string;
+
 function makeTestVideo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-re-'));
   const out = path.join(dir, 'src.mp4');
-  execFileSync('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out]);
+  execFileSync(FF, ['-y', '-f', 'lavfi', '-i', 'testsrc=duration=3:size=320x240:rate=5', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', out]);
   return out;
 }
 

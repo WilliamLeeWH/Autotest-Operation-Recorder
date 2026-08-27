@@ -34,7 +34,7 @@ function uniformSample<T>(items: T[], n: number): T[] {
 }
 
 export async function extractFrames(opts: ExtractFramesOptions): Promise<ExtractFramesResult> {
-  await ensureFfmpeg();
+  const ffmpegBin = await ensureFfmpeg();
   await fs.mkdir(opts.outDir, { recursive: true });
   const outPattern = path.join(opts.outDir, 'frame_%04d.jpg');
   const vf =
@@ -42,7 +42,7 @@ export async function extractFrames(opts: ExtractFramesOptions): Promise<Extract
       ? `select='gt(scene,${opts.sceneThreshold})',setpts=N/(25*TB),scale='min(${opts.maxWidth},iw)':-2`
       : `fps=1/${opts.intervalSec},scale='min(${opts.maxWidth},iw)':-2`;
   try {
-    await execFileAsync('ffmpeg', ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(RAW_FRAME_CAP), '-q:v', '4', outPattern]);
+    await execFileAsync(ffmpegBin, ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(RAW_FRAME_CAP), '-q:v', '4', outPattern]);
   } catch (err) {
     // ffmpeg may exit non-zero when no frames are produced (e.g., scene=1.0 on blank video).
     // We rely on file system check below rather than ffmpeg exit code.

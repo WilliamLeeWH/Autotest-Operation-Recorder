@@ -5,7 +5,7 @@
 ## 依赖
 
 - Node ≥ 18
-- ffmpeg（含 libx264）在 PATH：Windows `winget install Gyan.FFmpeg` / macOS `brew install ffmpeg` / Linux `apt install ffmpeg`
+- ffmpeg / ffprobe **已内置**（含 libx264），随 `npm install` 按平台自动下载，无需自行安装
 - 首次使用：`npx playwright install chromium`
 
 ## 快速开始
