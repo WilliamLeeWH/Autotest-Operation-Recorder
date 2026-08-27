@@ -32,8 +32,8 @@ export async function main(argv: string[]): Promise<number> {
     .description('录制：弹出有头浏览器，等待用户操作后关闭窗口，产出 mp4 + 活动截图')
     .requiredOption('--target <url>', '目标页面地址')
     .option('--out <dir>', '产物根目录（默认 out/）', 'out')
-    .option('--max-duration-min <n>', '最长录制分钟数', '30')
-    .option('--viewport <WxH>', '浏览器视口', '1280x800')
+    .option('--max-duration-min <n>', '最长录制分钟数')
+    .option('--viewport <WxH>', '浏览器视口')
     .option('--env-file <path>', '.env 文件路径（默认 .env）', '.env')
     .option('--verbose', '输出调试日志到 stderr', false)
     .action(async (opts) => {
@@ -43,8 +43,8 @@ export async function main(argv: string[]): Promise<number> {
       const result = await recordAndWait({
         targetUrl: opts.target,
         ...dirs,
-        maxDurationMin: Number(opts.maxDurationMin),
-        viewport: parseViewport(opts.viewport),
+        maxDurationMin: opts.maxDurationMin ? Number(opts.maxDurationMin) : cfg.record.maxDurationMin,
+        viewport: opts.viewport ? parseViewport(opts.viewport) : cfg.record.viewport,
       });
       stdout(`output: ${dirs.outDir}`);
       stdout(`video: ${result.videoPath}`);
@@ -56,11 +56,11 @@ export async function main(argv: string[]): Promise<number> {
     .description('分析：抽帧 → 视觉大模型 → steps.json（可对同一视频无限重跑）')
     .requiredOption('--video <path>', '视频文件路径')
     .option('--out <dir>', '产物目录（默认：视频所在会话目录）')
-    .option('--format <json|yaml>', '输出格式', 'json')
+    .option('--format <json|yaml>', '输出格式')
     .option('--model <m>', '覆盖 VLM_MODEL')
     .option('--base-url <u>', '覆盖 VLM_BASE_URL')
     .option('--api-key <k>', '覆盖 VLM_API_KEY')
-    .option('--vlm-input-mode <frames|video>', '覆盖 VLM_INPUT_MODE', 'frames')
+    .option('--vlm-input-mode <frames|video>', '覆盖 VLM_INPUT_MODE')
     .option('--env-file <path>', '.env 文件路径（默认 .env）', '.env')
     .option('--verbose', '输出调试日志到 stderr', false)
     .action(async (opts) => {
@@ -69,8 +69,8 @@ export async function main(argv: string[]): Promise<number> {
       if (opts.model) overrides.VLM_MODEL = opts.model;
       if (opts.baseUrl) overrides.VLM_BASE_URL = opts.baseUrl;
       if (opts.apiKey) overrides.VLM_API_KEY = opts.apiKey;
-      if (opts.vlmInputMode) overrides.VLM_INPUT_MODE = opts.vlmInputMode;
-      if (opts.format) overrides.OUTPUT_FORMAT = opts.format;
+      if (typeof opts.vlmInputMode === 'string') overrides.VLM_INPUT_MODE = opts.vlmInputMode;
+      if (typeof opts.format === 'string') overrides.OUTPUT_FORMAT = opts.format;
       const cfg = loadConfig(overrides, opts.envFile);
       const outDir = opts.out ?? resolveAnalyzeOutDir(opts.video);
       if (opts.verbose) console.error(`[analyze] video=${opts.video} out=${outDir} model=${cfg.vlm.model}`);
@@ -89,13 +89,13 @@ export async function main(argv: string[]): Promise<number> {
     .description('录制 + 分析 一步到位')
     .requiredOption('--target <url>', '目标页面地址')
     .option('--out <dir>', '产物根目录（默认 out/）', 'out')
-    .option('--max-duration-min <n>', '最长录制分钟数', '30')
-    .option('--viewport <WxH>', '浏览器视口', '1280x800')
-    .option('--format <json|yaml>', '输出格式', 'json')
+    .option('--max-duration-min <n>', '最长录制分钟数')
+    .option('--viewport <WxH>', '浏览器视口')
+    .option('--format <json|yaml>', '输出格式')
     .option('--model <m>', '覆盖 VLM_MODEL')
     .option('--base-url <u>', '覆盖 VLM_BASE_URL')
     .option('--api-key <k>', '覆盖 VLM_API_KEY')
-    .option('--vlm-input-mode <frames|video>', '覆盖 VLM_INPUT_MODE', 'frames')
+    .option('--vlm-input-mode <frames|video>', '覆盖 VLM_INPUT_MODE')
     .option('--env-file <path>', '.env 文件路径（默认 .env）', '.env')
     .option('--verbose', '输出调试日志到 stderr', false)
     .action(async (opts) => {
@@ -105,13 +105,12 @@ export async function main(argv: string[]): Promise<number> {
       const recordResult = await recordAndWait({
         targetUrl: opts.target,
         ...dirs,
-        maxDurationMin: Number(opts.maxDurationMin),
-        viewport: parseViewport(opts.viewport),
+        maxDurationMin: opts.maxDurationMin ? Number(opts.maxDurationMin) : cfg.record.maxDurationMin,
+        viewport: opts.viewport ? parseViewport(opts.viewport) : cfg.record.viewport,
       });
-      const overrides: Record<string, string> = {
-        VLM_INPUT_MODE: opts.vlmInputMode,
-      };
-      if (opts.format) overrides.OUTPUT_FORMAT = opts.format;
+      const overrides: Record<string, string> = {};
+      if (typeof opts.vlmInputMode === 'string') overrides.VLM_INPUT_MODE = opts.vlmInputMode;
+      if (typeof opts.format === 'string') overrides.OUTPUT_FORMAT = opts.format;
       if (opts.model) overrides.VLM_MODEL = opts.model;
       if (opts.baseUrl) overrides.VLM_BASE_URL = opts.baseUrl;
       if (opts.apiKey) overrides.VLM_API_KEY = opts.apiKey;
@@ -137,6 +136,7 @@ export async function main(argv: string[]): Promise<number> {
       return 2;
     }
     if (e instanceof CommanderError) {
+      if (e.code === 'commander.helpDisplayed' || e.code === 'commander.version') return e.exitCode ?? 0;
       console.error(`参数错误：${e.message}`);
       return 2;
     }
