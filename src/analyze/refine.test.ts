@@ -85,10 +85,13 @@ describe('analyzeVideo', () => {
   it('模型调用抛错时清理临时帧目录', async () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
-    const before = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-'));
+    const prefixCount = () =>
+      fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-')).length;
+    const before = prefixCount();
     const caller = async () => { throw new Error('network down'); };
     await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller })).rejects.toThrow('network down');
-    const after = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-'));
-    expect(after).toEqual(before);
+    // 并发测试文件可能同时创建同前缀目录（各自 finally 自行清理），轮询直至收敛到 before 数量；
+    // 真实泄漏永远不会自清 → 轮询超时失败，断言仍能抓住泄漏
+    await expect.poll(prefixCount, { timeout: 3000 }).toBeLessThanOrEqual(before);
   });
 });
