@@ -53,6 +53,15 @@ describe('extractFrames', () => {
     expect(r.framePaths).toHaveLength(2);
   });
 
+  it('maxCount=1 时均匀抽样取 1 帧且非 undefined（n=1 除零回归）', async () => {
+    const v = makeTestVideo();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.2, sceneThreshold: 0.3, maxCount: 1, maxWidth: 320 });
+    expect(r.framePaths).toHaveLength(1);
+    expect(r.framePaths[0]).toMatch(/\.jpg$/);
+    expect(fs.existsSync(r.framePaths[0])).toBe(true);
+  });
+
   it('scene 阈值 1.0 无变化画面 -> 抛出"操作过短"错误', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
     const blank = path.join(dir, 'blank.mp4');

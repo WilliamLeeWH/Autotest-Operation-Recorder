@@ -24,6 +24,8 @@ export interface ExtractFramesResult {
 
 function uniformSample<T>(items: T[], n: number): T[] {
   if (items.length <= n) return items;
+  // n=1 would divide by zero below (n-1) and yield [undefined]; take the first item.
+  if (n <= 1) return items.length > 0 ? [items[0]] : [];
   const out: T[] = [];
   for (let i = 0; i < n; i += 1) {
     out.push(items[Math.round((i * (items.length - 1)) / (n - 1))]);
@@ -40,7 +42,7 @@ export async function extractFrames(opts: ExtractFramesOptions): Promise<Extract
       ? `select='gt(scene,${opts.sceneThreshold})',setpts=N/(25*TB),scale='min(${opts.maxWidth},iw)':-2`
       : `fps=1/${opts.intervalSec},scale='min(${opts.maxWidth},iw)':-2`;
   try {
-    await execFileAsync('ffmpeg', ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(RAW_FRAME_CAP), '-q:v', '4', outPattern], { shell: true });
+    await execFileAsync('ffmpeg', ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(RAW_FRAME_CAP), '-q:v', '4', outPattern]);
   } catch (err) {
     // ffmpeg may exit non-zero when no frames are produced (e.g., scene=1.0 on blank video).
     // We rely on file system check below rather than ffmpeg exit code.

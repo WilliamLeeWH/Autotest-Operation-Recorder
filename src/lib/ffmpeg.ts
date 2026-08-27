@@ -7,7 +7,7 @@ const FFMPEG_HINT = '未检测到 ffmpeg。请安装并加入 PATH：Windows: `w
 
 export async function ensureFfmpeg(): Promise<string> {
   try {
-    const r = execFileSync('ffmpeg', ['-version'], { encoding: 'utf8', shell: true });
+    const r = execFileSync('ffmpeg', ['-version'], { encoding: 'utf8' });
     const firstLine = r.split('\n')[0] ?? '';
     // On Windows the first line is "ffmpeg version ..." which doesn't end with /ffmpeg/i.
     // Return the canonical command name when the full output doesn't end with it.
@@ -21,18 +21,12 @@ export async function ensureFfmpeg(): Promise<string> {
 }
 
 export async function probeVideoDurationMs(videoPath: string): Promise<number> {
-  try {
-    const { stdout } = await execFileAsync('ffprobe', [
-      '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', videoPath,
-    ], { shell: true });
-    const s = parseFloat(stdout.trim());
-    if (Number.isNaN(s)) throw new Error(`无法读取视频时长：${videoPath}`);
-    return Math.round(s * 1000);
-  } catch (err) {
-    // If ffprobe fails (e.g., invalid file), surface a clean error
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(`无法读取视频时长：${videoPath} (${msg})`);
-  }
+  const { stdout } = await execFileAsync('ffprobe', [
+    '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', videoPath,
+  ]);
+  const s = parseFloat(stdout.trim());
+  if (Number.isNaN(s)) throw new Error(`无法读取视频时长：${videoPath}`);
+  return Math.round(s * 1000);
 }
 
 export async function transcodeVideoToMp4(src: string, dst: string): Promise<void> {
@@ -40,6 +34,6 @@ export async function transcodeVideoToMp4(src: string, dst: string): Promise<voi
     '-y', '-i', src,
     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-an',
     '-movflags', '+faststart', dst,
-  ], { shell: true });
+  ]);
   if (!fs.existsSync(dst)) throw new Error(`转码失败：${dst} 未生成`);
 }
