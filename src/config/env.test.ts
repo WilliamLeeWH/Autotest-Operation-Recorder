@@ -25,9 +25,18 @@ describe('loadConfig', () => {
   });
 
   it('openai-compatible 缺 VLM_BASE_URL 抛 ConfigError', () => {
-    // spread BASE_OVERRIDES minus VLM_BASE_URL via explicit merge
+    // 空字符串触发 zod .url() 校验失败，走的是 zod 错误路径
     expect(() =>
       loadConfig({ VLM_API_KEY: 'x', VLM_MODEL: 'm', VLM_BASE_URL: '' }, NO_ENV),
+    ).toThrow(ConfigError);
+  });
+
+  it('openai-compatible 完全不含 VLM_BASE_URL 键时抛 ConfigError（显式守卫分支）', () => {
+    expect(() =>
+      loadConfig(
+        { VLM_API_KEY: 'sk-test', VLM_MODEL: 'qwen2.5-vl-max', VLM_PROVIDER: 'openai-compatible' },
+        NO_ENV,
+      ),
     ).toThrow(ConfigError);
   });
 
