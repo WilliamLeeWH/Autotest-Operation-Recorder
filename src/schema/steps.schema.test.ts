@@ -33,7 +33,7 @@ describe('validateSteps', () => {
   });
 
   it('缺 description 被拒绝', () => {
-    const bad = structuredClone(validFile);
+    const bad = structuredClone(validFile) as any;
     delete bad.steps[0].description;
     expect(validateSteps(bad).ok).toBe(false);
   });
