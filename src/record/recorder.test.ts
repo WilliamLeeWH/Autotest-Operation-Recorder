@@ -33,8 +33,9 @@ describe('recordAndWait', () => {
         },
       });
 
-      await new Promise<void>((resolve) => setTimeout(resolve, 4000)); // 等页面打开+截帧启动
-      expect(openedPage).not.toBeNull();
+      await expect
+        .poll(() => openedPage, { timeout: 15000, message: '浏览器页面应在 15s 内完成打开' })
+        .not.toBeNull(); // 有界轮询等待页面打开（避免与有头 Chromium 冷启动赛跑）
       const page = openedPage as unknown as import('playwright').Page;
 
       await page.fill('#username', 'test01'); // 触发 input 事件 → 脏标记
