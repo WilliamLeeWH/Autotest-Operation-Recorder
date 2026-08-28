@@ -12,8 +12,8 @@ const validFile = {
     frame_count: 30,
   },
   steps: [
-    { id: 1, description: '点击页面右上角的「登录」按钮', action_type: 'click', target: '登录按钮', value: null, start_sec: 3.5 },
-    { id: 2, description: '在「用户名」输入框输入 test01', action_type: 'input', target: '用户名输入框', value: 'test01', start_sec: 6.0 },
+    { id: 1, description: '点击页面右上角的「登录」按钮', action_type: 'click', target: '登录按钮', value: null, assertion: '页面跳转并显示登录表单', start_sec: 3.5 },
+    { id: 2, description: '在「用户名」输入框输入 test01', action_type: 'input', target: '用户名输入框', value: 'test01', assertion: '用户名输入框中显示 test01', start_sec: 6.0 },
   ],
 };
 
@@ -36,6 +36,36 @@ describe('validateSteps', () => {
     const bad = structuredClone(validFile) as any;
     delete bad.steps[0].description;
     expect(validateSteps(bad).ok).toBe(false);
+  });
+
+  it('缺 assertion 被拒绝（每步必须有该字段）', () => {
+    const bad = structuredClone(validFile) as any;
+    delete bad.steps[0].assertion;
+    const r = validateSteps(bad);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join()).toContain('assertion');
+  });
+
+  it('assertion 为 null 合法（无页面变化的步骤）且原样保留', () => {
+    const f = structuredClone(validFile);
+    for (const s of f.steps) s.assertion = null;
+    const r = validateSteps(f);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.steps.every((s: any) => s.assertion === null)).toBe(true);
+  });
+
+  it('assertion 不被剥离且内容原样保留', () => {
+    const r = validateSteps(validFile);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.data.steps[1].assertion).toBe('用户名输入框中显示 test01');
+  });
+
+  it('空字符串 assertion 被拒绝', () => {
+    const bad = structuredClone(validFile) as any;
+    bad.steps[0].assertion = '';
+    const r = validateSteps(bad);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join()).toContain('assertion');
   });
 
   it('非 JSON 文本返回解析错误', () => {

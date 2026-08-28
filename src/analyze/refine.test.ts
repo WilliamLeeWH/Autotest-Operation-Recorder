@@ -25,8 +25,8 @@ function makeTestVideo(): string {
 const validJson = JSON.stringify({
   version: '1.0',
   steps: [
-    { description: '打开登录页面', action_type: 'goto', target: null, value: null, start_sec: 0 },
-    { description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, start_sec: 1.2 },
+    { description: '打开登录页面', action_type: 'goto', target: null, value: null, assertion: '页面显示登录表单', start_sec: 0 },
+    { description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, assertion: '页面跳转到主界面', start_sec: 1.2 },
   ],
 });
 
@@ -38,9 +38,9 @@ const cfg = loadConfig(
 describe('finalizeSteps', () => {
   it('连续重复步骤去重并重排 id', () => {
     const input: Step[] = [
-      { id: 9, description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, start_sec: 1 },
-      { id: 8, description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, start_sec: 2 },
-      { id: 7, description: '输入 admin', action_type: 'input', target: '用户名输入框', value: 'admin', start_sec: 3 },
+      { id: 9, description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, assertion: '页面跳转到主界面', start_sec: 1 },
+      { id: 8, description: '点击「登录」按钮', action_type: 'click', target: '登录按钮', value: null, assertion: '页面跳转到主界面', start_sec: 2 },
+      { id: 7, description: '输入 admin', action_type: 'input', target: '用户名输入框', value: 'admin', assertion: '用户名输入框中显示 admin', start_sec: 3 },
     ];
     const out = finalizeSteps(input);
     expect(out).toHaveLength(2);
@@ -60,6 +60,7 @@ describe('analyzeVideo', () => {
       const onDisk = JSON.parse(fs.readFileSync(r.stepsPath, 'utf8'));
       expect(validateSteps(onDisk).ok).toBe(true);
       expect(onDisk.steps.map((s: any) => s.description)).toContain('打开登录页面');
+      expect(onDisk.steps.find((s: any) => s.description === '打开登录页面').assertion).toBe('页面显示登录表单');
     }
   });
 

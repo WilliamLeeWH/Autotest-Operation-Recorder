@@ -29,7 +29,7 @@
 | 截图备份 | record 阶段同步留存"有效操作"截图（活动监听 + 防抖截图），v1.0 仅落盘不处理；analyze 输入仍只有 mp4 + 配置 |
 | VLM 输入策略 | 双模式：默认抽帧（frames），可选原生视频（video），配置开关 |
 | 抽帧默认参数 | interval 1s + 帧上限 30；scene 模式保留为开关（阈值 0.3） |
-| 输出契约 | 自然语言描述为主 + 可选意图字段（action_type/target/value）+ start_sec 时间戳 |
+| 输出契约 | 自然语言描述为主 + 可选意图字段（action_type/target/value）+ 必填断言（assertion，可 null）+ start_sec 时间戳 |
 | 实现语言 | TypeScript / Node 18+ |
 | 交付形态 | CLI 为主（record / analyze / run）+ TS 库入口（同一套函数） |
 | 编排方式 | 两阶段：录制与分析分离，视频与 JSON 均落盘，分析可无限重跑 |
@@ -135,6 +135,7 @@ steps.json 或 failure.json
       "action_type": "click",
       "target": "登录按钮",
       "value": null,
+      "assertion": "页面跳转并显示登录表单",
       "start_sec": 3.5
     },
     {
@@ -143,6 +144,7 @@ steps.json 或 failure.json
       "action_type": "input",
       "target": "用户名输入框",
       "value": "test01",
+      "assertion": "用户名输入框中显示 test01",
       "start_sec": 6.0
     }
   ]
@@ -152,6 +154,7 @@ steps.json 或 failure.json
 - `description`：主体。措辞按"可直接拼进 midscene 智能体指令（ai.click / ai.input 级别）"编写，平台组脚本即用。
 - `action_type`：枚举 `goto / click / input / hover / scroll / keypress / select / wait / unknown`；模型不确定必须给 `unknown`，不硬编。
 - `target` / `value`：可选；target 为目标元素自然语言指认，value 为 input/select 的输入值。
+- `assertion`：必填、可 null。描述执行该操作后页面上视觉可见的变化，作为 midscene `aiAssert` 的断言参数；操作未引起页面元素可见变化时为 `null`（调用方跳过该步断言）。模型输出缺该字段或为空串 → 校验失败 → 自动重试。
 - `start_sec`：由帧索引换算的动作起始时间点，供平台回溯核对，也是未来事件对齐的锚点。
 - refine 阶段附加处理：连续重复步骤去重、id 重排。
 - 默认 JSON 输出；`--format yaml` 可切换，结构同构。

@@ -8,7 +8,8 @@
 3. 输入类操作必须给出具体输入内容；如果视频中无法辨认输入内容，value 填 null，并在描述中保持中性措辞。
 4. action_type 只能是以下枚举之一：goto, click, input, hover, scroll, keypress, select, wait, unknown。无法确定时填 unknown。
 5. 连续帧中画面没有变化时，不要重复生成相同步骤。
-6. 只输出一个 JSON 对象，禁止输出任何其他文字、解释或 markdown 代码块标记。
+6. 每一步必须提供 assertion 字段：描述执行该操作后页面上【视觉可见】的变化结果，作为 midscene 的 aiAssert 断言参数。它必须完全基于视频中观察到的页面状态，不要臆测后端逻辑或未显示的内容；语句要具体、可验证，例如输入 user01 后写「用户名输入框中显示 user01」。如果执行该操作后页面元素没有发生任何可见变化，assertion 必须填 null（表示跳过该步断言），禁止填空字符串。
+7. 只输出一个 JSON 对象，禁止输出任何其他文字、解释或 markdown 代码块标记。
 
 输出格式：
 {
@@ -18,6 +19,7 @@
       "action_type": "<枚举>",
       "target": "<目标元素的自然语言描述，无则 null>",
       "value": "<输入内容，无则 null>",
+      "assertion": "<执行操作后页面上可见的变化，无可见变化则 null>",
       "start_sec": <该步动作开始的大致秒数，数字>
     }
   ]
@@ -26,9 +28,9 @@
 示例：
 {
   "steps": [
-    { "description": "打开登录页面", "action_type": "goto", "target": null, "value": null, "start_sec": 0 },
-    { "description": "点击页面右上角的「登录」按钮", "action_type": "click", "target": "登录按钮", "value": null, "start_sec": 12 },
-    { "description": "在「用户名」输入框输入 admin", "action_type": "input", "target": "用户名输入框", "value": "admin", "start_sec": 17 }
+    { "description": "打开登录页面", "action_type": "goto", "target": null, "value": null, "assertion": "页面显示登录表单，包含用户名和密码输入框", "start_sec": 0 },
+    { "description": "在「用户名」输入框输入 user01", "action_type": "input", "target": "用户名输入框", "value": "user01", "assertion": "用户名输入框中显示 user01", "start_sec": 12 },
+    { "description": "滚动页面到屏幕底部", "action_type": "scroll", "target": null, "value": null, "assertion": null, "start_sec": 17 }
   ]
 }
 

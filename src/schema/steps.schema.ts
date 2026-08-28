@@ -8,6 +8,9 @@ export const stepSchema = z.object({
   action_type: actionTypeSchema.optional(),
   target: z.string().nullable().optional(),
   value: z.string().nullable().optional(),
+  // 执行该操作后页面上视觉可见的变化结果，作为 midscene aiAssert 的参数；
+  // 操作未引起页面元素变化时为 null（调用方跳过该步断言）
+  assertion: z.string().min(1).nullable(),
   start_sec: z.number().nonnegative(),
 });
 

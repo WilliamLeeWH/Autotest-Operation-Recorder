@@ -24,7 +24,7 @@ let page: { url: string; close: () => Promise<void> };
 beforeAll(async () => {
   stub = await startVlmStub(JSON.stringify({
     version: '1.0',
-    steps: [{ description: '打开测试页', action_type: 'goto', target: null, value: null, start_sec: 0 }],
+    steps: [{ description: '打开测试页', action_type: 'goto', target: null, value: null, assertion: '页面显示测试页内容', start_sec: 0 }],
   }));
   page = await startPageServer();
 });

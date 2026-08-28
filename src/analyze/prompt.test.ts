@@ -8,12 +8,16 @@ describe('prompt', () => {
     expect(t).toContain('action_type');
     expect(t).toContain('midscene');
     expect(t).toContain('只输出');
+    expect(t).toContain('assertion');
+    expect(t).toContain('aiAssert');
   });
 
   it('video 模板可加载且结构同构', async () => {
     const t = await loadPromptTemplate('video');
     expect(t).toContain('action_type');
     expect(t).toContain('midscene');
+    expect(t).toContain('assertion');
+    expect(t).toContain('aiAssert');
   });
 
   it('未知模式抛错', async () => {
