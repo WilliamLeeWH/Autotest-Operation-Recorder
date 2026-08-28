@@ -35,6 +35,14 @@ npm run cli -- analyze --video out/<session>/recording/video.mp4
 
 全部视觉模型密钥与行为参数通过 `.env` 配置（不读系统环境变量），CLI 参数优先级最高，详见 `.env.example` 与 docs/superpowers/specs/2026-08-26-op-recorder-design.md。
 
+## 屏幕缩放适配（100% / 125% / 150%）
+
+录制启动时用探针窗口读取真实显示器参数（DPI 缩放倍率 + 工作区），自动适配：
+
+- **deviceScaleFactor 对齐显示器真实缩放**：125%/150% 屏幕上录制视频会偶发 1~2 帧的缩放闪烁（合成器在 1.0 与真实缩放间翻转），对齐后该状态消失，任何缩放倍率下画面稳定。
+- **视口钳制到工作区**：请求的视口 + 窗口边框超出屏幕可容纳区域时（放大倍率下常见），自动缩小视口（stderr 提示实际尺寸），避免窗口被 Windows 裁剪导致的尺寸抖动。
+- 100% 缩放下完全保持原行为（1280x800 等请求尺寸原样使用）。
+
 ## 退出码
 
 0 成功 / 1 一般失败 / 2 配置错误。stdout 输出稳定行（`output:` / `video:` / `screenshots:` / `steps:` / `failure:`），诊断日志走 stderr，`--verbose` 开启。
