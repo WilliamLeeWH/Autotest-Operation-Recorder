@@ -52,6 +52,8 @@ describe('recordAndWait', () => {
       expect(fs.existsSync(result.videoPath)).toBe(true);
       expect(fs.statSync(result.videoPath).size).toBeGreaterThan(1000);
       expect(result.screenshotCount).toBeGreaterThanOrEqual(1);
+      // 产物契约:recording/ 只保留 video.mp4 + screens/,原始 webm 转码后应被清除
+      expect(fs.readdirSync(dirs.recordingDir).filter((f) => f.endsWith('.webm'))).toEqual([]);
       const meta = await readSessionMeta(dirs.outDir);
       expect(meta?.targetUrl).toBe(server.url);
     },
@@ -90,6 +92,8 @@ describe('recordAndWait', () => {
       expect(Date.now() - startedAt).toBeLessThan(30_000);
       expect(fs.existsSync(result.videoPath)).toBe(true);
       expect(fs.statSync(result.videoPath).size).toBeGreaterThan(1000);
+      // 产物契约:recording/ 只保留 video.mp4 + screens/,原始 webm 转码后应被清除
+      expect(fs.readdirSync(dirs.recordingDir).filter((f) => f.endsWith('.webm'))).toEqual([]);
     },
     60_000
   );

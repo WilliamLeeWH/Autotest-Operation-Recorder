@@ -217,6 +217,8 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
       const target = path.join(opts.recordingDir, 'video.mp4');
       await transcodeVideoToMp4(rawPath, target);
       videoPath = target;
+      // 产物契约只含 video.mp4 + screens/：转码成功后删除 Playwright 原始 webm
+      await fs.promises.unlink(rawPath).catch(() => {});
     }
     await poller; // 轮询到 stop 标志后退出
   } finally {
