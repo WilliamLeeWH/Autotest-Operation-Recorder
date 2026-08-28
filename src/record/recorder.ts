@@ -3,7 +3,7 @@ import path from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { ACTIVITY_INJECT_SCRIPT } from './activity-inject.js';
 import { writeSessionMeta } from '../output/writer.js';
-import { ensureFfmpeg, transcodeVideoToMp4 } from '../lib/ffmpeg.js';
+import { ensureFfmpeg, probeVideoDurationMs, transcodeVideoToMp4 } from '../lib/ffmpeg.js';
 
 export interface RecordOptions {
   targetUrl: string;
@@ -87,10 +87,32 @@ export async function measureScreen(browser: Browser): Promise<ScreenMetrics | n
 
 const POLL_INTERVAL_MS = 500;
 const DEBOUNCE_MS = 800;
-const FINALIZE_GRACE_MS = 1500;
+const VIDEO_READY_RETRY_MS = 500;
+const VIDEO_READY_MAX_WAIT_MS = 20_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 轮询 ffprobe 直到录制文件可解析（时长可读取）。
+ * 窗口被外部关闭后 Playwright 仍会异步最终化录制缓冲：实测 context.close() 后
+ * 文件先在约 4-5s 内保持 0 字节,随后一次性写入完整容器——用“尺寸稳定”判断会被
+ * 空文件误导,固定 sleep 又可能读到半写入状态(转码报 EBML header parsing failed),
+ * 因此以“文件可读”这一真实条件为准。上限 VIDEO_READY_MAX_WAIT_MS,超时按现状继续,
+ * 转码若仍失败会走统一报错并由 finally 关闭浏览器,进程不会挂死。
+ */
+export async function waitForVideoReadable(videoPath: string, maxWaitMs = VIDEO_READY_MAX_WAIT_MS): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  for (;;) {
+    try {
+      await probeVideoDurationMs(videoPath); // 未最终化的文件解析不到时长,会抛错
+      return;
+    } catch {
+      if (Date.now() + VIDEO_READY_RETRY_MS >= deadline) return; // 再等一轮即到上限 → 直接继续
+      await sleep(VIDEO_READY_RETRY_MS);
+    }
+  }
 }
 
 export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> {
@@ -121,6 +143,10 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
   const closed = new Promise<void>((resolve) => {
     context.on('close', () => resolve());
     browser.on('disconnected', () => resolve());
+    // 用户关闭最后一个窗口时只触发 page close：Playwright 启动的 Chromium
+    // 在窗口全部关闭后进程不会自行退出，context 'close' 与 browser 'disconnected'
+    // 都不会触发——只等这两个信号会把命令困到 RECORD_MAX_DURATION_MIN 超时。
+    page.on('close', () => resolve());
   });
 
   // 浏览器/页面关闭后置位，轮询优雅退出，不做永久空转
@@ -163,7 +189,7 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
   await writeSessionMeta(opts.outDir, { targetUrl: opts.targetUrl, startedAt: new Date(startedAt) });
   if (opts.onOpened) await opts.onOpened(page);
 
-  // 等待用户关闭窗口（context close / browser disconnect），或 maxDurationMin 超时后自动收尾
+  // 等待用户关闭窗口（page close / context close / browser disconnect），或 maxDurationMin 超时后自动收尾
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   const timedOut = await Promise.race([
     closed.then(() => false),
@@ -175,18 +201,28 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
   if (timedOut) {
     await context.close().catch(() => {});
   }
-  await closed; // 保证 context 已 close，再等 Playwright finalize 视频
+  await closed; // 断言录制已结束：context close / browser disconnect / page window close 三选一
+
+  if (!timedOut) {
+    // 用户外部关闭窗口时 context 仍存活,而 Playwright 只在 context 关闭时才最终化录制
+    // 文件:主动 close 触发落盘(实测不 close 可能要数分钟,close 后约 5s 内完成)
+    await context.close().catch(() => {});
+  }
 
   const video = page.video();
-  await sleep(FINALIZE_GRACE_MS);
   const rawPath = (await video?.path().catch(() => null)) ?? null;
-  if (rawPath && fs.existsSync(rawPath)) {
-    const target = path.join(opts.recordingDir, 'video.mp4');
-    await transcodeVideoToMp4(rawPath, target);
-    videoPath = target;
+  if (rawPath) await waitForVideoReadable(rawPath); // 等 Playwright 异步落盘完成,避免读到半写入的 webm
+  try {
+    if (rawPath && fs.existsSync(rawPath) && fs.statSync(rawPath).size > 0) {
+      const target = path.join(opts.recordingDir, 'video.mp4');
+      await transcodeVideoToMp4(rawPath, target);
+      videoPath = target;
+    }
+    await poller; // 轮询到 stop 标志后退出
+  } finally {
+    // 转码成败都必须关闭浏览器：否则 Chromium 子进程的管道会一直挂住事件循环，CLI 永不退出
+    await browser.close().catch(() => {});
   }
-  await poller; // 轮询到 stop 标志后退出
-  await browser.close().catch(() => {});
 
   const durationSec = Math.round((Date.now() - startedAt) / 1000);
   if (!videoPath) throw new Error('录制结束但未产生视频文件（操作过于短暂？请稍长一些再录），请重新录制');
