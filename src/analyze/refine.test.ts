@@ -68,6 +68,17 @@ describe('analyzeVideo', () => {
     }
   });
 
+  it('成功路径产出抽帧预览视频：recording/frames_preview.mp4 非空', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const caller = async () => validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
+    expect(r.ok).toBe(true);
+    const preview = path.join(outDir, 'recording', 'frames_preview.mp4');
+    expect(fs.existsSync(preview)).toBe(true);
+    expect(fs.statSync(preview).size).toBeGreaterThan(1000);
+  });
+
   it('两次不合格（含一次段落外文本）后成功：自修正生效', async () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
@@ -89,7 +100,7 @@ describe('analyzeVideo', () => {
       expect(f.frame_count).toBeGreaterThan(0);
       expect(f.raw_model_output).toContain('always invalid');
     }
-    expect(fs.existsSync(path.join(outDir, 'steps.json'))).toBe(false);
+    expect(fs.existsSync(path.join(outDir, 'results', 'steps.json'))).toBe(false);
   });
 
   it('成功路径：session.json 写入 analysis 块，保留 target_url，核算 1 轮 ok', async () => {
@@ -100,7 +111,7 @@ describe('analyzeVideo', () => {
     const caller = async () => validJson;
     const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(true);
-    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
     expect(session.target_url).toBe('http://app/login');
     expect(session.started_at).toBe(startedAt.toISOString());
     const a = session.analysis;
@@ -121,7 +132,7 @@ describe('analyzeVideo', () => {
     const caller = async () => responses.shift() ?? validJson;
     const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(true);
-    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
     const rounds = session.analysis.rounds as { round: number; status: string; ended_at: string }[];
     expect(rounds.map((x) => x.status)).toEqual(['invalid', 'ok']);
     expect(rounds[0].ended_at).toBeTruthy();
@@ -134,7 +145,7 @@ describe('analyzeVideo', () => {
     const caller = async () => 'always invalid';
     const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(false);
-    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
     expect(session.analysis.result).toBe('failed');
     expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['invalid', 'invalid', 'invalid']);
   });
@@ -144,7 +155,7 @@ describe('analyzeVideo', () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
     const caller = async () => { throw new Error('network down'); };
     await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet })).rejects.toThrow('network down');
-    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
     expect(session.analysis.result).toBe('error');
     expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['error']);
   });
@@ -169,6 +180,12 @@ describe('analyzeVideo', () => {
     const start0 = events[0];
     if (start0.kind === 'stepStart') {
       expect(start0.detail).toContain('模式=interval'); // 抽帧阶段回显 .env 实际配置
+    }
+    const stepOk0 = events[1];
+    if (stepOk0.kind === 'stepOk') {
+      // 抽帧完成的进度带上预览视频路径（相对会话目录），提示可对照原录像检查抽帧是否丢关键操作
+      expect(stepOk0.detail).toContain('recording/frames_preview.mp4');
+      expect(stepOk0.detail).toContain('送入模型');
     }
     const modelStart = events.find((e) => e.kind === 'stepStart' && e.phase === '模型分析');
     if (modelStart && modelStart.kind === 'stepStart') {

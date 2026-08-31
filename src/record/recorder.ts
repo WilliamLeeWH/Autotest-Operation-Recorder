@@ -10,7 +10,7 @@ export interface RecordOptions {
   targetUrl: string;
   outDir: string;
   recordingDir: string;
-  screensDir: string;
+  screenshotsDir: string;
   maxDurationMin: number;
   viewport: { width: number; height: number };
   deviceScaleFactor?: number;
@@ -171,7 +171,7 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
         lastShotAt = now;
         const seq = String(screenshotCount + 1).padStart(4, '0');
         await page
-          .screenshot({ path: path.join(opts.screensDir, `frame_${seq}.png`) })
+          .screenshot({ path: path.join(opts.screenshotsDir, `frame_${seq}.png`) })
           .then(() => {
             screenshotCount += 1;
           })
@@ -221,7 +221,7 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
       const target = path.join(opts.recordingDir, 'video.mp4');
       await transcodeVideoToMp4(rawPath, target);
       videoPath = target;
-      // 产物契约只含 video.mp4 + screens/：转码成功后删除 Playwright 原始 webm
+      // 产物契约只含 video.mp4 + screenshots/：转码成功后删除 Playwright 原始 webm
       await fs.promises.unlink(rawPath).catch(() => {});
     }
     await poller; // 轮询到 stop 标志后退出

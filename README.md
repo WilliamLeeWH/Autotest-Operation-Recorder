@@ -25,11 +25,13 @@ npm run cli -- analyze --video out/<session>/recording/video.mp4
 
     out/<session-id>/
     ├── recording/
-    │   ├── video.mp4      # 操作视频
-    │   └── screens/       # 有效操作截图（v1.0 仅留档，不参与分析）
-    ├── steps.json         # 结构化操作步骤（分析成功）
-    ├── failure.json       # 分析失败原始输出（失败时）
-    └── session.json       # 录制会话元信息 + 分析块（analysis：起止时间、每轮状态/起止时间/时长）
+    │   ├── video.mp4            # 原始操作录像
+    │   └── frames_preview.mp4   # 抽帧预览视频：送入模型的帧按原时序渲染（与原录像等长），对照播放可检查抽帧频率是否丢关键操作
+    ├── screenshots/             # 有效操作页面截图（v1.0 仅留档，不参与分析）
+    └── results/
+        ├── steps.json           # 结构化操作步骤（分析成功）
+        ├── failure.json         # 分析失败原始输出（失败时）
+        └── session.json         # 录制会话元信息 + 分析块（analysis：起止时间、每轮状态/起止时间/时长）
 
 ## 配置
 

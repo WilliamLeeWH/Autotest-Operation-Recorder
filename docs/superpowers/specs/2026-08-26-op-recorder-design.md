@@ -75,7 +75,7 @@ recorder/
 
 **组件边界**：`record` 的产物只有 mp4 + 截图目录；`analyze` 的输入只有 mp4 + 配置，输出只有 steps.json（或 failure.json）。两者无共享可变状态——这是"分析可无限重跑"的根基。平台集成时 stdout 只输出稳定行（产物路径），诊断走 stderr + `--verbose`。
 
-产物目录约定：`<out>/<session-id>/recording/`（video.mp4 + screens/），steps.json 输出到 `<out>/<session-id>/steps.json`。
+产物目录约定：`<out>/<session-id>/` 下三个平级子目录——`recording/`（原始录像 video.mp4 + 抽帧预览 frames_preview.mp4）、`screenshots/`（页面截图）、`results/`（session.json / steps.json / failure.json）。
 
 ## 5. 数据流
 
@@ -85,12 +85,13 @@ recorder/
 启动有头 Chromium (recordVideo 开)
    │── 打开 target URL
    │── 注入活动监听（click/keydown/wheel/input/change/submit → 置脏标记）
-   │     + Node 侧 500ms 轮询：脏且距上次 ≥800ms → page.screenshot() → screens/frame_N.png
+   │     + Node 侧 500ms 轮询：脏且距上次 ≥800ms → page.screenshot() → screenshots/frame_N.png
    │── 等待用户关闭浏览器窗口 / RECORD_MAX_DURATION_MIN 超时自动收尾
    ▼
-<out>/<session-id>/recording/
-   ├── video.mp4        ← Playwright 自动 finalize
-   └── screens/         ← 备用资产，v1.0 不做任何处理（为后续增量更新预留）
+<out>/<session-id>/
+   ├── recording/       ← video.mp4（Playwright 自动最终化后转码）+ frames_preview.mp4（抽帧预览，分析阶段产出）
+   ├── screenshots/     ← 备用资产，v1.0 不做任何处理（为后续增量更新预留）
+   └── results/         ← session.json / steps.json / failure.json
 ```
 
 录屏（recordVideo，浏览器端合成）与截图（CDP）互不干扰。`analyze` 只读 video.mp4，截图目录不被分析管线触碰。

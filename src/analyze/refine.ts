@@ -87,14 +87,19 @@ export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult>
       phase: '视频抽帧预处理',
       detail: `模式=${cfg.frame.mode} 间隔=${cfg.frame.intervalSec}s 阈值=${cfg.frame.sceneThreshold} 上限=${cfg.frame.maxCount}帧 最大宽度=${cfg.frame.maxWidth}px`,
     });
+    const previewPath = path.join(opts.outDir, 'recording', 'frames_preview.mp4');
     let frames: Awaited<ReturnType<typeof extractFrames>>;
     try {
-      frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, ...cfg.frame });
+      frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, previewVideoPath: previewPath, ...cfg.frame });
     } catch (e) {
       emit({ kind: 'stepFail', phase: '视频抽帧预处理', reason: errMsg(e) });
       throw e;
     }
-    emit({ kind: 'stepOk', phase: '视频抽帧预处理', detail: `提取 ${frames.frameCount} 帧` });
+    emit({
+      kind: 'stepOk',
+      phase: '视频抽帧预处理',
+      detail: `提取 ${frames.extractedCount} 帧、送入模型 ${frames.frameCount} 帧，抽帧预览视频 → ${path.relative(opts.outDir, previewPath).replace(/\\/g, '/')}`,
+    });
 
     // ── 2. 提示词组装 ──
     emit({

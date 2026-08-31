@@ -57,7 +57,7 @@ describe('cli main', () => {
       '--env-file', envPath,
     ]);
     expect(code).toBe(0);
-    expect(fs.existsSync(path.join(out, 'steps.json'))).toBe(true);
+    expect(fs.existsSync(path.join(out, 'results', 'steps.json'))).toBe(true);
   });
 
   it('缺 --target 的 record 返回 2（配置错误）', async () => {
@@ -101,6 +101,6 @@ describe('cli main', () => {
 
     const code = await main(['analyze', '--video', video, '--out', out, '--env-file', envPath]);
     expect(code).toBe(0);
-    expect(fs.existsSync(path.join(out, 'steps.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(out, 'results', 'steps.yaml'))).toBe(true);
   });
 });

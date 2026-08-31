@@ -52,7 +52,9 @@ describe('recordAndWait', () => {
       expect(fs.existsSync(result.videoPath)).toBe(true);
       expect(fs.statSync(result.videoPath).size).toBeGreaterThan(1000);
       expect(result.screenshotCount).toBeGreaterThanOrEqual(1);
-      // 产物契约:recording/ 只保留 video.mp4 + screens/,原始 webm 转码后应被清除
+      // 截图落在平级的 screenshots/ 目录而非 recording/ 内
+      expect(fs.readdirSync(dirs.screenshotsDir).filter((f) => f.endsWith('.png'))).toHaveLength(result.screenshotCount);
+      // 产物契约:recording/ 只保留 video.mp4,原始 webm 转码后应被清除
       expect(fs.readdirSync(dirs.recordingDir).filter((f) => f.endsWith('.webm'))).toEqual([]);
       const meta = await readSessionMeta(dirs.outDir);
       expect(meta?.targetUrl).toBe(server.url);
