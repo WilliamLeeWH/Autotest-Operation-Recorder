@@ -88,7 +88,106 @@ describe('analyzeVideo', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('连续失败 → failure.json 且不含 steps.json', async () => {
+  it('模型输出带 markdown 围栏与前后缀文本 → 修复脚本截取首尾大括号，第 1 轮即成功', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const events: ProgressEvent[] = [];
+    const fenced = `好的，以下是分析结果：\n\`\`\`json\n${validJson}\n\`\`\`\n希望对你有所帮助`;
+    const responses = [fenced, validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: (e) => events.push(e) });
+    expect(r.ok).toBe(true);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'steps.json'), 'utf8'));
+    expect(onDisk.steps.map((s: any) => s.description)).toContain('打开登录页面');
+    // 解析中间过程上报成对的「开始 / 完成」事件，且该轮以 ok 收尾（只调用了 1 次模型，无失败轮）
+    expect(events.some((e) => e.kind === 'stepStart' && e.phase === '模型原始输出解析')).toBe(true);
+    expect(events.some((e) => e.kind === 'stepOk' && e.phase === '模型原始输出解析')).toBe(true);
+    expect(events.filter((e) => e.kind === 'stepOk' && e.phase === '模型分析')).toHaveLength(1);
+    expect(fs.existsSync(path.join(outDir, 'results', 'failure.json'))).toBe(false);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
+    expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['ok']);
+  });
+
+  it('修复脚本成功但提取的 JSON 结构缺失 steps → 本轮仍计失败，进入下一轮', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const responses = ['带噪声的输出 {{ 开头', validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({
+      outDir,
+      videoPath: video,
+      cfg,
+      caller,
+      onProgress: quiet,
+      repairJsonOutput: async () => '{"status":"ok"}',
+    });
+    expect(r.ok).toBe(true);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
+    expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['invalid', 'ok']);
+    const f = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'failure.json'), 'utf8'));
+    expect(f.epochs[0]).toMatchObject({ is_success: false, round: 1, raw_model_output: '带噪声的输出 {{ 开头' });
+    expect(f.epochs[0].reason).toContain('steps');
+  });
+
+  it('修复脚本失败 → 本轮失败进入下一轮，failure.json 保留原始输出', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const events: ProgressEvent[] = [];
+    const responses = ['前置文本 {"steps":', validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({
+      outDir,
+      videoPath: video,
+      cfg,
+      caller,
+      onProgress: (e) => events.push(e),
+      repairJsonOutput: async () => null,
+    });
+    expect(r.ok).toBe(true);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'session.json'), 'utf8'));
+    expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['invalid', 'ok']);
+    expect(events.some((e) => e.kind === 'stepFail' && e.phase === '模型原始输出解析')).toBe(true);
+    const f = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'failure.json'), 'utf8'));
+    expect(f.epochs[0]).toMatchObject({ is_success: false, round: 1, raw_model_output: '前置文本 {"steps":' });
+  });
+
+  it('修复持续失败：全部轮次 invalid，failure.json 记录每轮原始输出', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const caller = async () => '~~~ {"steps":';
+    const r = await analyzeVideo({
+      outDir,
+      videoPath: video,
+      cfg,
+      caller,
+      onProgress: quiet,
+      repairJsonOutput: async () => null,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      const f = JSON.parse(fs.readFileSync(r.failurePath, 'utf8'));
+      expect(f.epochs).toHaveLength(3);
+      for (const e of f.epochs) expect(e.reason).toContain('JSON');
+    }
+  });
+
+  it('前两轮失败、第三轮成功：仍写 failure.json，失败轮带完整信息、成功轮只留 is_success+round', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const responses = ['{"steps":', 'plain text not json', validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
+    expect(r.ok).toBe(true); // 最终模型成功完成
+    const f = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'failure.json'), 'utf8'));
+    expect(f.frame_count).toBeGreaterThan(0);
+    expect(f.epochs).toHaveLength(3);
+    expect(f.epochs[0]).toMatchObject({ is_success: false, round: 1, raw_model_output: '{"steps":' });
+    expect(f.epochs[1]).toMatchObject({ is_success: false, round: 2, raw_model_output: 'plain text not json' });
+    expect(Object.keys(f.epochs[2])).toEqual(['is_success', 'round']);
+    expect(f.epochs[2]).toEqual({ is_success: true, round: 3 });
+  });
+
+  it('连续失败 → failure.json（帧数置顶层、epochs 逐轮记录）且不含 steps.json', async () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
     const caller = async () => 'always invalid';
@@ -97,8 +196,15 @@ describe('analyzeVideo', () => {
     if (!r.ok) {
       expect(fs.existsSync(r.failurePath)).toBe(true);
       const f = JSON.parse(fs.readFileSync(r.failurePath, 'utf8'));
+      expect(Object.keys(f)).toEqual(['frame_count', 'epochs']); // frame_count 在顶层，无顶层 reason
       expect(f.frame_count).toBeGreaterThan(0);
-      expect(f.raw_model_output).toContain('always invalid');
+      expect(f.epochs).toHaveLength(3); // maxRetry=2 → 共 3 轮
+      for (let i = 0; i < f.epochs.length; i += 1) {
+        const e = f.epochs[i];
+        expect(Object.keys(e)).toEqual(['is_success', 'round', 'reason', 'raw_model_output']); // is_success 在首位
+        expect(e).toMatchObject({ is_success: false, round: i + 1, raw_model_output: 'always invalid' });
+        expect(e.reason).toContain('JSON');
+      }
     }
     expect(fs.existsSync(path.join(outDir, 'results', 'steps.json'))).toBe(false);
   });
@@ -236,5 +342,28 @@ describe('analyzeVideo', () => {
     // 并发测试文件可能同时创建同前缀目录（各自 finally 自行清理），轮询直至收敛到 before 数量；
     // 真实泄漏永远不会自清 → 轮询超时失败，断言仍能抓住泄漏
     await expect.poll(prefixCount, { timeout: 3000 }).toBeLessThanOrEqual(before);
+  });
+
+  it('第 1 轮输出无效、第 2 轮抛异常：先写盘已收集失败轮再抛错', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    let calls = 0;
+    const caller = async () => {
+      calls += 1;
+      if (calls === 1) return 'always invalid';
+      throw new Error('network down');
+    };
+    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet })).rejects.toThrow('network down');
+    const f = JSON.parse(fs.readFileSync(path.join(outDir, 'results', 'failure.json'), 'utf8'));
+    expect(f.epochs).toHaveLength(1);
+    expect(f.epochs[0]).toMatchObject({ is_success: false, round: 1, raw_model_output: 'always invalid' });
+  });
+
+  it('第 1 轮即抛异常：无失败轮可写，不产出 failure.json', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const caller = async () => { throw new Error('network down'); };
+    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet })).rejects.toThrow('network down');
+    expect(fs.existsSync(path.join(outDir, 'results', 'failure.json'))).toBe(false);
   });
 });

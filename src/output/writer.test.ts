@@ -54,15 +54,24 @@ describe('writer', () => {
     expect(yaml.load(fs.readFileSync(p, 'utf8'))).toEqual(sample);
   });
 
-  it('writeFailure 记录原因、原文与帧数，落到 results/ 下', async () => {
+  it('writeFailure 顶层只有 frame_count，epochs 逐轮记录：失败轮含原因与原文，成功轮只留 is_success+round', async () => {
     const root = await tmpOut();
     const d = await ensureDirs(root, 'sess1');
-    const p = await writeFailure(d.outDir, '连续校验失败', '{"bad":1}', 7);
+    const p = await writeFailure(d.outDir, 7, [
+      { is_success: false, round: 1, reason: '缺 steps 数组', raw_model_output: '{"nope":1}' },
+      { is_success: false, round: 2, reason: '不是合法 JSON', raw_model_output: 'plain text' },
+      { is_success: true, round: 3 },
+    ]);
     expect(path.dirname(p)).toBe(d.resultsDir);
     const f = JSON.parse(fs.readFileSync(p, 'utf8'));
-    expect(f.reason).toBe('连续校验失败');
-    expect(f.raw_model_output).toBe('{"bad":1}');
+    expect(Object.keys(f)).toEqual(['frame_count', 'epochs']); // 顶层无 reason / raw_model_output
     expect(f.frame_count).toBe(7);
+    // 失败轮：is_success 在首位，四字段齐全
+    expect(Object.keys(f.epochs[0])).toEqual(['is_success', 'round', 'reason', 'raw_model_output']);
+    expect(f.epochs[0]).toEqual({ is_success: false, round: 1, reason: '缺 steps 数组', raw_model_output: '{"nope":1}' });
+    // 成功轮：只留 is_success + round
+    expect(Object.keys(f.epochs[2])).toEqual(['is_success', 'round']);
+    expect(f.epochs[2]).toEqual({ is_success: true, round: 3 });
   });
 
   it('writeSessionMeta / readSessionMeta 往返（results/ 下）', async () => {

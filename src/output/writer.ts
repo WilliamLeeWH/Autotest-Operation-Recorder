@@ -44,9 +44,15 @@ export async function writeSteps(outDir: string, data: StepsFile, format: 'json'
   return filePath;
 }
 
-export async function writeFailure(outDir: string, reason: string, rawOutput: string, frameCount: number): Promise<string> {
+/** failure.json 的一个 epoch：失败轮带原因与模型原始输出；成功轮只带 is_success 与轮次（其余缺省） */
+export type FailureEpoch =
+  | { is_success: true; round: number }
+  | { is_success: false; round: number; reason: string; raw_model_output: string };
+
+/** 每轮分析结果入 epochs，帧数置顶层；任何一轮失败（无论最终成败）都应写盘，供排查模型输出 */
+export async function writeFailure(outDir: string, frameCount: number, epochs: FailureEpoch[]): Promise<string> {
   const filePath = await resultsFile(outDir, 'failure.json');
-  await fs.writeFile(filePath, JSON.stringify({ reason, frame_count: frameCount, raw_model_output: rawOutput }, null, 2), 'utf8');
+  await fs.writeFile(filePath, JSON.stringify({ frame_count: frameCount, epochs }, null, 2), 'utf8');
   return filePath;
 }
 
