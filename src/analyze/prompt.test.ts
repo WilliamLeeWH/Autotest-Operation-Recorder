@@ -10,6 +10,10 @@ describe('prompt', () => {
     expect(t).toContain('只输出');
     expect(t).toContain('assertion');
     expect(t).toContain('aiAssert');
+    // 录制侧新增鼠标点击高亮：模板必须告知模型其含义
+    expect(t).toContain('红色');
+    expect(t).toContain('高亮');
+    expect(t).toContain('涟漪');
   });
 
   it('video 模板可加载且结构同构', async () => {
@@ -18,6 +22,9 @@ describe('prompt', () => {
     expect(t).toContain('midscene');
     expect(t).toContain('assertion');
     expect(t).toContain('aiAssert');
+    expect(t).toContain('红色');
+    expect(t).toContain('高亮');
+    expect(t).toContain('涟漪');
   });
 
   it('未知模式抛错', async () => {
