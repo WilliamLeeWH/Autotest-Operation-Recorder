@@ -125,7 +125,7 @@ export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult>
     emit({
       kind: 'stepStart',
       phase: '视频抽帧预处理',
-      detail: `模式=${cfg.frame.mode} 间隔=${cfg.frame.intervalSec}s 阈值=${cfg.frame.sceneThreshold} 上限=${cfg.frame.maxCount}帧 最大宽度=${cfg.frame.maxWidth}px`,
+      detail: `模式=${cfg.frame.mode} 间隔=${cfg.frame.intervalSec}s 阈值=${cfg.frame.sceneThreshold} 上限=${cfg.frame.maxCount === null ? `自动(${cfg.frame.maxCountRatio}×总帧数)` : `${cfg.frame.maxCount}帧(手动)`} 最大宽度=${cfg.frame.maxWidth}px`,
     });
     const previewPath = path.join(opts.outDir, 'recording', 'frames_preview.mp4');
     let frames: Awaited<ReturnType<typeof extractFrames>>;
@@ -206,12 +206,12 @@ export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult>
       // 模型有输出但整体不是合法 JSON（常见：输出被 markdown 围栏 / 前后缀文本包裹）时，
       // 先调用修复脚本截取首尾大括号再解析：成功则本轮按正常校验流程走（视作成功），失败则进入下一轮自修正
       if (!v.ok && modelRawOutput.trim() !== '' && v.errors.length === 1 && v.errors[0] === JSON_PARSE_ERROR) {
-        emit({ kind: 'stepStart', phase: '模型原始输出解析', detail: `第 ${i + 1}/${rounds} 轮输出不是合法 JSON，截取首尾大括号重试` });
+        emit({ kind: 'stepStart', phase: '模型原始输出解析', detail: `第 ${i + 1}/${rounds} 轮输出不是合法 JSON，调用JSON解析工具重试` });
         const repaired = await repairJson(modelRawOutput);
         if (repaired === null) {
           emit({ kind: 'stepFail', phase: '模型原始输出解析', reason: JSON_PARSE_ERROR });
         } else {
-          emit({ kind: 'stepOk', phase: '模型原始输出解析', detail: '截取首尾大括号解析成功' });
+          emit({ kind: 'stepOk', phase: '模型原始输出解析', detail: '成功提取模型原始输出中的 JSON' });
           v = parseModelOutput(repaired);
         }
       }

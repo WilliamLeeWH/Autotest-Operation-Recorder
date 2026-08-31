@@ -6,7 +6,11 @@ import { promisify } from 'node:util';
 import { ensureFfmpeg, probeVideoDurationMs } from '../lib/ffmpeg.js';
 
 const execFileAsync = promisify(execFile);
-const RAW_FRAME_CAP = 400; // ffmpeg 侧粗上限，避免超大视频产出巨量框架
+// ffmpeg 侧硬上限的兜底值：仅在视频时长探测失败时用于防止超大视频产出巨量框架。
+// 正常路径下硬上限由 视频总帧数 = ⌈时长 ÷ 采样间隔⌉ 自动推导。
+const FALLBACK_FRAME_CAP = 400;
+// 自动推导出帧数的防御性上限（防止极端参数/异常视频一次性产出海量帧）。
+const HARD_FRAME_CAP = 10000;
 
 export interface ExtractFramesOptions {
   videoPath: string;
@@ -14,7 +18,10 @@ export interface ExtractFramesOptions {
   mode: 'interval' | 'scene';
   intervalSec: number;
   sceneThreshold: number;
-  maxCount: number;
+  /** 喂给模型的帧数上限：null = 按 totalFrames × maxCountRatio 自动推导 */
+  maxCount: number | null;
+  /** maxCount 为 null 时的缩放倍率（0~1） */
+  maxCountRatio: number;
   maxWidth: number;
   /** 抽帧预览视频目标路径：把送入模型的帧渲染成 mp4，供对照原录像检查抽样密度是否丢关键操作 */
   previewVideoPath?: string;
@@ -60,6 +67,10 @@ async function renderPreviewVideo(opts: ExtractFramesOptions, framePaths: string
   }
 }
 
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(Math.max(n, min), max);
+}
+
 function uniformSample<T>(items: T[], n: number): T[] {
   if (items.length <= n) return items;
   // n=1 would divide by zero below (n-1) and yield [undefined]; take the first item.
@@ -79,8 +90,20 @@ export async function extractFrames(opts: ExtractFramesOptions): Promise<Extract
     opts.mode === 'scene'
       ? `select='gt(scene,${opts.sceneThreshold})',setpts=N/(25*TB),scale='min(${opts.maxWidth},iw)':-2`
       : `fps=1/${opts.intervalSec},scale='min(${opts.maxWidth},iw)':-2`;
+  // 按原视频时长与采样间隔推导总帧数（向上取整，避免丢末端帧），并作为 ffmpeg 硬上限。
+  // 只有真正关心的总帧上限会按此推导；时长探测失败时退回常量兜底。
+  let totalFrames: number | null = null;
   try {
-    await execFileAsync(ffmpegBin, ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(RAW_FRAME_CAP), '-q:v', '4', outPattern]);
+    const durationMs = await probeVideoDurationMs(opts.videoPath);
+    totalFrames = clamp(Math.ceil(durationMs / 1000 / opts.intervalSec), 1, HARD_FRAME_CAP);
+  } catch {
+    // 时长探测失败：interval 模式无帧可依，退回兜底上限（与旧常量行为一致）
+  }
+  const frameCap = totalFrames ?? FALLBACK_FRAME_CAP;
+  // maxCount 未显式设置时按 总帧数 × maxCountRatio 自动推导（下限 1 帧）
+  const maxCount = opts.maxCount ?? (totalFrames === null ? null : Math.max(1, Math.floor(totalFrames * opts.maxCountRatio)));
+  try {
+    await execFileAsync(ffmpegBin, ['-y', '-i', opts.videoPath, '-vf', vf, '-frames:v', String(frameCap), '-q:v', '4', outPattern]);
   } catch (err) {
     // ffmpeg may exit non-zero when no frames are produced (e.g., scene=1.0 on blank video).
     // We rely on file system check below rather than ffmpeg exit code.
@@ -91,7 +114,7 @@ export async function extractFrames(opts: ExtractFramesOptions): Promise<Extract
   }
   const files = (await fs.readdir(opts.outDir)).filter((f) => f.endsWith('.jpg')).sort();
   const all = files.map((f) => path.join(opts.outDir, f));
-  const framePaths = uniformSample(all, opts.maxCount);
+  const framePaths = maxCount === null ? all : uniformSample(all, maxCount);
   if (framePaths.length === 0) {
     throw new Error('视频中未提取到任何帧（录制过短或视频无效），请重新录制');
   }

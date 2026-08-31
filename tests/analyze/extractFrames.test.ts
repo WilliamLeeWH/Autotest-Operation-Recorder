@@ -41,25 +41,43 @@ describe('ffmpeg helpers', () => {
 describe('extractFrames', () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it('interval 1s 抽出约 4 帧', async () => {
+  it('interval 1s 抽出约 4 帧（显式 maxCount 不截断）', async () => {
     const v = makeTestVideo();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
-    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 1, sceneThreshold: 0.3, maxCount: 30, maxWidth: 320 });
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 1, sceneThreshold: 0.3, maxCount: 30, maxCountRatio: 0.65, maxWidth: 320 });
     expect(r.frameCount).toBeGreaterThanOrEqual(3);
     expect(r.frameCount).toBeLessThanOrEqual(5);
+  });
+
+  it('maxCount=null 时按 总帧数×ratio 自动推导上限', async () => {
+    // 4s 视频 @1s → 总帧数 4 → 上限 floor(4×0.65)=2
+    const v = makeTestVideo();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 1, sceneThreshold: 0.3, maxCount: null, maxCountRatio: 0.65, maxWidth: 320 });
+    expect(r.extractedCount).toBeGreaterThanOrEqual(3); // ffmpeg 上限不受 ratio 影响
+    expect(r.frameCount).toBe(2);
+  });
+
+  it('maxCount=null 时 ffmpeg 硬上限 = ceil(时长/间隔)，不丢末端帧', async () => {
+    // 4s 视频 @0.5s → 总帧数 8，上限=8（旧常量上限 400 下也能取到，此处验证自动上限不减少取帧）
+    const v = makeTestVideo();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.5, sceneThreshold: 0.3, maxCount: null, maxCountRatio: 1, maxWidth: 320 });
+    expect(r.extractedCount).toBeGreaterThanOrEqual(7);
+    expect(r.frameCount).toBe(r.extractedCount); // ratio=1 → 全量送模型
   });
 
   it('超过 maxCount 时均匀抽样到 maxCount', async () => {
     const v = makeTestVideo();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
-    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.2, sceneThreshold: 0.3, maxCount: 2, maxWidth: 320 });
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.2, sceneThreshold: 0.3, maxCount: 2, maxCountRatio: 0.65, maxWidth: 320 });
     expect(r.framePaths).toHaveLength(2);
   });
 
   it('maxCount=1 时均匀抽样取 1 帧且非 undefined（n=1 除零回归）', async () => {
     const v = makeTestVideo();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
-    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.2, sceneThreshold: 0.3, maxCount: 1, maxWidth: 320 });
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 0.2, sceneThreshold: 0.3, maxCount: 1, maxCountRatio: 0.65, maxWidth: 320 });
     expect(r.framePaths).toHaveLength(1);
     expect(r.framePaths[0]).toMatch(/\.jpg$/);
     expect(fs.existsSync(r.framePaths[0])).toBe(true);
@@ -70,7 +88,7 @@ describe('extractFrames', () => {
     const blank = path.join(dir, 'blank.mp4');
     execFileSync(FF, ['-y', '-f', 'lavfi', '-i', 'color=black:duration=2:size=320x240:rate=5', '-c:v', 'libx264', blank]);
     await expect(
-      extractFrames({ videoPath: blank, outDir: dir, mode: 'scene', intervalSec: 1, sceneThreshold: 1.0, maxCount: 30, maxWidth: 320 })
+      extractFrames({ videoPath: blank, outDir: dir, mode: 'scene', intervalSec: 1, sceneThreshold: 1.0, maxCount: 30, maxCountRatio: 0.65, maxWidth: 320 })
     ).rejects.toThrow(/操作过短|未提取到任何帧/);
   });
 
@@ -78,7 +96,7 @@ describe('extractFrames', () => {
     const v = makeTestVideo();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-fr-'));
     vi.stubEnv('PATH', '');
-    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 1, sceneThreshold: 0.3, maxCount: 30, maxWidth: 320 });
+    const r = await extractFrames({ videoPath: v, outDir: dir, mode: 'interval', intervalSec: 1, sceneThreshold: 0.3, maxCount: 30, maxCountRatio: 0.65, maxWidth: 320 });
     expect(r.frameCount).toBeGreaterThanOrEqual(3);
   });
 });

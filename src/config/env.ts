@@ -17,7 +17,11 @@ const rawSchema = z.object({
   FRAME_MODE: z.enum(['interval', 'scene']).default('interval'),
   FRAME_INTERVAL_SEC: z.coerce.number().positive().default(1),
   FRAME_SCENE_THRESHOLD: z.coerce.number().min(0).max(1).default(0.3),
-  FRAME_MAX_COUNT: z.coerce.number().int().min(1).max(200).default(30),
+  // 喂给模型的帧数上限：不设置时按 视频总帧数 × FRAME_MAX_COUNT_RATIO 自动推导。
+  // 想手动控制时可显式设置（数字），此时忽略 RATIO。
+  FRAME_MAX_COUNT: z.coerce.number().int().min(1).optional(),
+  // 自动推导帧数上限时的缩放倍率，仅 FRAME_MAX_COUNT 未设置时生效。
+  FRAME_MAX_COUNT_RATIO: z.coerce.number().min(0).max(1).default(0.65),
   FRAME_MAX_WIDTH: z.coerce.number().int().min(320).max(4096).default(1568),
   RECORD_MAX_DURATION_MIN: z.coerce.number().positive().default(30),
   RECORD_CLICK_HIGHLIGHT: z.enum(['true', 'false']).default('true'),
@@ -36,7 +40,7 @@ export interface AppConfig {
     temperature: number;
     maxRetry: number;
   };
-  frame: { mode: 'interval' | 'scene'; intervalSec: number; sceneThreshold: number; maxCount: number; maxWidth: number };
+  frame: { mode: 'interval' | 'scene'; intervalSec: number; sceneThreshold: number; maxCount: number | null; maxCountRatio: number; maxWidth: number };
   record: { maxDurationMin: number; viewport: { width: number; height: number }; clickHighlight: boolean };
   output: { format: 'json' | 'yaml' };
 }
@@ -90,7 +94,8 @@ export function loadConfig(overrides: Record<string, string> = {}, envPath = '.e
       mode: r.FRAME_MODE,
       intervalSec: r.FRAME_INTERVAL_SEC,
       sceneThreshold: r.FRAME_SCENE_THRESHOLD,
-      maxCount: r.FRAME_MAX_COUNT,
+      maxCount: r.FRAME_MAX_COUNT ?? null,
+      maxCountRatio: r.FRAME_MAX_COUNT_RATIO,
       maxWidth: r.FRAME_MAX_WIDTH,
     },
     record: { maxDurationMin: r.RECORD_MAX_DURATION_MIN, viewport: { width: w, height: h }, clickHighlight: r.RECORD_CLICK_HIGHLIGHT === 'true' },

@@ -10,14 +10,26 @@ const BASE_OVERRIDES: Record<string, string> = {
 };
 
 describe('loadConfig', () => {
-  it('加载默认值：interval 1s + 帧上限 30 + frames 模式', () => {
+  it('加载默认值：interval 1s + 帧上限自动推导（null + ratio 0.65）+ frames 模式', () => {
     const cfg = loadConfig(BASE_OVERRIDES, NO_ENV);
     expect(cfg.frame.mode).toBe('interval');
     expect(cfg.frame.intervalSec).toBe(1);
-    expect(cfg.frame.maxCount).toBe(30);
+    expect(cfg.frame.maxCount).toBeNull();
+    expect(cfg.frame.maxCountRatio).toBe(0.65);
     expect(cfg.vlm.inputMode).toBe('frames');
     expect(cfg.vlm.videoSupported).toBe(true); // qwen2.5-vl-max 命中视频能力名单
     expect(cfg.record.viewport).toEqual({ width: 1280, height: 800 });
+  });
+
+  it('显式 FRAME_MAX_COUNT 覆盖自动推导，RATIO 失效', () => {
+    const cfg = loadConfig({ ...BASE_OVERRIDES, FRAME_MAX_COUNT: '40', FRAME_MAX_COUNT_RATIO: '0.5' }, NO_ENV);
+    expect(cfg.frame.maxCount).toBe(40);
+  });
+
+  it('仅设置 FRAME_MAX_COUNT_RATIO 时 maxCount 仍为 null（走自动推导）', () => {
+    const cfg = loadConfig({ ...BASE_OVERRIDES, FRAME_MAX_COUNT_RATIO: '0.8' }, NO_ENV);
+    expect(cfg.frame.maxCount).toBeNull();
+    expect(cfg.frame.maxCountRatio).toBe(0.8);
   });
 
   it('RECORD_CLICK_HIGHLIGHT 缺省即开启（录屏内置鼠标点击高亮）', () => {
