@@ -61,6 +61,81 @@ describe('recordAndWait', () => {
   );
 
   test(
+    '默认注入鼠标点击高亮:主键按下时页面上出现高亮标记,视频/截图可捕获点击位置',
+    async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-hl-'));
+      const dirs = await ensureDirs(root, 'hl-session');
+
+      let openedPage: import('playwright').Page | null = null;
+      const promise = recordAndWait({
+        targetUrl: server.url,
+        ...dirs,
+        maxDurationMin: 1,
+        viewport: { width: 960, height: 600 },
+        onOpened: (page) => {
+          openedPage = page;
+        },
+      });
+
+      await expect
+        .poll(() => openedPage, { timeout: 15000, message: '浏览器页面应在 15s 内完成打开' })
+        .not.toBeNull();
+      const page = openedPage as unknown as import('playwright').Page;
+
+      await page.mouse.move(150, 90);
+      await page.mouse.down();
+      await page.mouse.up();
+      const hasMarker = await page.evaluate(
+        () => document.querySelectorAll('[data-op-click-highlight]').length > 0,
+      );
+      expect(hasMarker).toBe(true);
+
+      await page.context().close().catch(() => {});
+      const result = await promise;
+      expect(fs.existsSync(result.videoPath)).toBe(true);
+    },
+    60_000
+  );
+
+  test(
+    'clickHighlight:false 时不注入点击高亮,按下不出现高亮标记',
+    async () => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-nohl-'));
+      const dirs = await ensureDirs(root, 'nohl-session');
+
+      let openedPage: import('playwright').Page | null = null;
+      const promise = recordAndWait({
+        targetUrl: server.url,
+        ...dirs,
+        maxDurationMin: 1,
+        viewport: { width: 960, height: 600 },
+        clickHighlight: false,
+        onOpened: (page) => {
+          openedPage = page;
+        },
+      });
+
+      await expect
+        .poll(() => openedPage, { timeout: 15000, message: '浏览器页面应在 15s 内完成打开' })
+        .not.toBeNull();
+      const page = openedPage as unknown as import('playwright').Page;
+
+      await page.mouse.move(150, 90);
+      await page.mouse.down();
+      await page.mouse.up();
+      const hasMarker = await page.evaluate(
+        () => document.querySelectorAll('[data-op-click-highlight]').length > 0,
+      );
+      expect(hasMarker).toBe(false);
+
+      await page.context().close().catch(() => {});
+      const result = await promise;
+      expect(fs.existsSync(result.videoPath)).toBe(true);
+    },
+    60_000
+  );
+
+  test(
     '用户只关窗口(page close 而 context 仍在)时立即结束录制,不等 maxDurationMin 超时',
     async () => {
       const root = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-winclose-'));

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium, type Browser, type Page } from 'playwright';
 import { ACTIVITY_INJECT_SCRIPT } from './activity-inject.js';
+import { CLICK_HIGHLIGHT_INJECT_SCRIPT } from './click-highlight-inject.js';
 import { writeSessionMeta } from '../output/writer.js';
 import { ensureFfmpeg, probeVideoDurationMs, transcodeVideoToMp4 } from '../lib/ffmpeg.js';
 
@@ -13,6 +14,8 @@ export interface RecordOptions {
   maxDurationMin: number;
   viewport: { width: number; height: number };
   deviceScaleFactor?: number;
+  /** 鼠标点击高亮（点击处扩散涟漪），默认开启：帮助视觉模型定位点击位置 */
+  clickHighlight?: boolean;
   onOpened?: (page: Page) => void | Promise<void>;
 }
 
@@ -138,6 +141,7 @@ export async function recordAndWait(opts: RecordOptions): Promise<RecordResult> 
   });
   const page = await context.newPage();
   await page.addInitScript(ACTIVITY_INJECT_SCRIPT);
+  if (opts.clickHighlight !== false) await page.addInitScript(CLICK_HIGHLIGHT_INJECT_SCRIPT);
   let screenshotCount = 0;
 
   const closed = new Promise<void>((resolve) => {

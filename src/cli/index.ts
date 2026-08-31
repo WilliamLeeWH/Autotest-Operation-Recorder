@@ -34,6 +34,7 @@ export async function main(argv: string[]): Promise<number> {
     .option('--out <dir>', '产物根目录（默认 out/）', 'out')
     .option('--max-duration-min <n>', '最长录制分钟数')
     .option('--viewport <WxH>', '浏览器视口')
+    .option('--no-click-highlight', '禁用鼠标点击高亮（默认开启）')
     .option('--env-file <path>', '.env 文件路径（默认 .env）', '.env')
     .option('--verbose', '输出调试日志到 stderr', false)
     .action(async (opts) => {
@@ -45,6 +46,8 @@ export async function main(argv: string[]): Promise<number> {
         ...dirs,
         maxDurationMin: opts.maxDurationMin ? Number(opts.maxDurationMin) : cfg.record.maxDurationMin,
         viewport: opts.viewport ? parseViewport(opts.viewport) : cfg.record.viewport,
+        // commander 否定式布尔默认 true：仅在显式传入 --no-click-highlight 时置 false，否则听从 .env
+        clickHighlight: opts.clickHighlight === false ? false : cfg.record.clickHighlight,
       });
       stdout(`output: ${dirs.outDir}`);
       stdout(`video: ${result.videoPath}`);
@@ -91,6 +94,7 @@ export async function main(argv: string[]): Promise<number> {
     .option('--out <dir>', '产物根目录（默认 out/）', 'out')
     .option('--max-duration-min <n>', '最长录制分钟数')
     .option('--viewport <WxH>', '浏览器视口')
+    .option('--no-click-highlight', '禁用鼠标点击高亮（默认开启）')
     .option('--format <json|yaml>', '输出格式')
     .option('--model <m>', '覆盖 VLM_MODEL')
     .option('--base-url <u>', '覆盖 VLM_BASE_URL')
@@ -107,6 +111,8 @@ export async function main(argv: string[]): Promise<number> {
         ...dirs,
         maxDurationMin: opts.maxDurationMin ? Number(opts.maxDurationMin) : cfg.record.maxDurationMin,
         viewport: opts.viewport ? parseViewport(opts.viewport) : cfg.record.viewport,
+        // commander 否定式布尔默认 true：仅在显式传入 --no-click-highlight 时置 false，否则听从 .env
+        clickHighlight: opts.clickHighlight === false ? false : cfg.record.clickHighlight,
       });
       const overrides: Record<string, string> = {};
       if (typeof opts.vlmInputMode === 'string') overrides.VLM_INPUT_MODE = opts.vlmInputMode;

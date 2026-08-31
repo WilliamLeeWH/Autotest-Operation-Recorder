@@ -20,6 +20,16 @@ describe('loadConfig', () => {
     expect(cfg.record.viewport).toEqual({ width: 1280, height: 800 });
   });
 
+  it('RECORD_CLICK_HIGHLIGHT 缺省即开启（录屏内置鼠标点击高亮）', () => {
+    const cfg = loadConfig(BASE_OVERRIDES, NO_ENV);
+    expect(cfg.record.clickHighlight).toBe(true);
+  });
+
+  it('RECORD_CLICK_HIGHLIGHT=false 显式关闭鼠标点击高亮', () => {
+    const cfg = loadConfig({ ...BASE_OVERRIDES, RECORD_CLICK_HIGHLIGHT: 'false' }, NO_ENV);
+    expect(cfg.record.clickHighlight).toBe(false);
+  });
+
   it('缺少 VLM_API_KEY 抛 ConfigError', () => {
     expect(() => loadConfig({ VLM_MODEL: 'qwen2.5-vl-max' }, NO_ENV)).toThrow(ConfigError);
   });

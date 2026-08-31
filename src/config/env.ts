@@ -20,6 +20,7 @@ const rawSchema = z.object({
   FRAME_MAX_COUNT: z.coerce.number().int().min(1).max(200).default(30),
   FRAME_MAX_WIDTH: z.coerce.number().int().min(320).max(4096).default(1568),
   RECORD_MAX_DURATION_MIN: z.coerce.number().positive().default(30),
+  RECORD_CLICK_HIGHLIGHT: z.enum(['true', 'false']).default('true'),
   DEFAULT_VIEWPORT: z.string().regex(/^\d+x\d+$/).default('1280x800'),
   OUTPUT_FORMAT: z.enum(['json', 'yaml']).default('json'),
 });
@@ -36,7 +37,7 @@ export interface AppConfig {
     maxRetry: number;
   };
   frame: { mode: 'interval' | 'scene'; intervalSec: number; sceneThreshold: number; maxCount: number; maxWidth: number };
-  record: { maxDurationMin: number; viewport: { width: number; height: number } };
+  record: { maxDurationMin: number; viewport: { width: number; height: number }; clickHighlight: boolean };
   output: { format: 'json' | 'yaml' };
 }
 
@@ -92,7 +93,7 @@ export function loadConfig(overrides: Record<string, string> = {}, envPath = '.e
       maxCount: r.FRAME_MAX_COUNT,
       maxWidth: r.FRAME_MAX_WIDTH,
     },
-    record: { maxDurationMin: r.RECORD_MAX_DURATION_MIN, viewport: { width: w, height: h } },
+    record: { maxDurationMin: r.RECORD_MAX_DURATION_MIN, viewport: { width: w, height: h }, clickHighlight: r.RECORD_CLICK_HIGHLIGHT === 'true' },
     output: { format: r.OUTPUT_FORMAT },
   };
   assertModelInputCompatible(cfg);
