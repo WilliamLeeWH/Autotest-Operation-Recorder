@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import yaml from 'js-yaml';
-import { createSessionId, ensureDirs, readSessionMeta, writeFailure, writeSessionMeta, writeSteps } from './writer.js';
+import { createSessionId, ensureDirs, readSessionMeta, updateSessionAnalysis, writeFailure, writeSessionMeta, writeSteps } from './writer.js';
+import type { AnalysisInfo } from './writer.js';
 import type { StepsFile } from '../schema/steps.schema.js';
 
 const sample: StepsFile = {
@@ -61,5 +62,33 @@ describe('writer', () => {
     await writeSessionMeta(d.outDir, { targetUrl: 'http://app/login', startedAt: new Date('2026-08-26T10:00:00') });
     expect((await readSessionMeta(d.outDir))?.targetUrl).toBe('http://app/login');
     expect(await readSessionMeta(root)).toBeNull();
+  });
+
+  it('updateSessionAnalysis 合并分析块：保留原有 target_url 与 started_at', async () => {
+    const root = await tmpOut();
+    const d = await ensureDirs(root, 'sess1');
+    const startedAt = new Date('2026-08-26T10:00:00');
+    await writeSessionMeta(d.outDir, { targetUrl: 'http://app/login', startedAt });
+    const analysis: AnalysisInfo = {
+      started_at: 't0',
+      ended_at: 't1',
+      result: 'ok',
+      rounds: [{ round: 1, status: 'ok', started_at: 't0', ended_at: 't0', duration_ms: 12 }],
+    };
+    const p = await updateSessionAnalysis(d.outDir, analysis);
+    expect(path.basename(p)).toBe('session.json');
+    const onDisk = JSON.parse(fs.readFileSync(p, 'utf8'));
+    expect(onDisk.target_url).toBe('http://app/login');
+    expect(onDisk.started_at).toBe(startedAt.toISOString());
+    expect(onDisk.analysis).toEqual(analysis);
+  });
+
+  it('updateSessionAnalysis 在 session.json 缺失时新建并写入分析块', async () => {
+    const root = await tmpOut();
+    const analysis: AnalysisInfo = { started_at: 't0', ended_at: 't1', result: 'failed', rounds: [] };
+    await updateSessionAnalysis(root, analysis);
+    const onDisk = JSON.parse(fs.readFileSync(path.join(root, 'session.json'), 'utf8'));
+    expect(onDisk.analysis.result).toBe('failed');
+    expect(onDisk.target_url).toBeUndefined();
   });
 });

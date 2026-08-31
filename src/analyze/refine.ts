@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { extractFrames } from './extractFrames.js';
 import { createVlmCaller, type VlmCaller } from './vlm.js';
 import { buildUserMessage, loadPromptTemplate } from './prompt.js';
+import { createStderrProgressPrinter, formatDuration, startRoundTimer, type ProgressPrinter } from './progress.js';
 import { validateSteps, stepSchema, type Step, type StepsFile } from '../schema/steps.schema.js';
-import { readSessionMeta, writeFailure, writeSteps } from '../output/writer.js';
+import { readSessionMeta, updateSessionAnalysis, writeFailure, writeSteps, type AnalysisInfo } from '../output/writer.js';
 import type { AppConfig } from '../config/env.js';
 
 export interface AnalyzeOptions {
@@ -14,6 +15,11 @@ export interface AnalyzeOptions {
   videoPath: string;
   cfg: AppConfig;
   caller?: VlmCaller; // 测试注入；缺省用 createVlmCaller(cfg)
+  onProgress?: ProgressPrinter; // 分步进度事件；缺省写 stderr（默认开启，无需 --verbose）
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
 }
 
 export type AnalyzeResult =
@@ -66,31 +72,105 @@ function parseModelOutput(raw: string): { ok: true; steps: Step[] } | { ok: fals
 
 export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult> {
   const cfg = opts.cfg;
+  const emit = opts.onProgress ?? createStderrProgressPrinter();
+  const analysis: AnalysisInfo = {
+    started_at: new Date().toISOString(),
+    ended_at: '',
+    result: 'error',
+    rounds: [],
+  };
   const framesDir = await fs.mkdtemp(path.join(os.tmpdir(), 'oprec-frames-'));
   try {
-    const frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, ...cfg.frame });
+    // ── 1. 抽帧预处理 ──
+    emit({
+      kind: 'stepStart',
+      phase: '视频抽帧预处理',
+      detail: `模式=${cfg.frame.mode} 间隔=${cfg.frame.intervalSec}s 阈值=${cfg.frame.sceneThreshold} 上限=${cfg.frame.maxCount}帧 最大宽度=${cfg.frame.maxWidth}px`,
+    });
+    let frames: Awaited<ReturnType<typeof extractFrames>>;
+    try {
+      frames = await extractFrames({ videoPath: opts.videoPath, outDir: framesDir, ...cfg.frame });
+    } catch (e) {
+      emit({ kind: 'stepFail', phase: '视频抽帧预处理', reason: errMsg(e) });
+      throw e;
+    }
+    emit({ kind: 'stepOk', phase: '视频抽帧预处理', detail: `提取 ${frames.frameCount} 帧` });
 
-    const template = await loadPromptTemplate(cfg.vlm.inputMode);
+    // ── 2. 提示词组装 ──
+    emit({
+      kind: 'stepStart',
+      phase: '提示词组装',
+      detail: `模板=prompts/${cfg.vlm.inputMode}.txt FRAME_COUNT=${frames.frameCount}`,
+    });
+    let template: string;
+    try {
+      template = await loadPromptTemplate(cfg.vlm.inputMode);
+    } catch (e) {
+      emit({ kind: 'stepFail', phase: '提示词组装', reason: errMsg(e) });
+      throw e;
+    }
     const prompt = buildUserMessage(template, { mode: cfg.vlm.inputMode, frameCount: frames.frameCount });
+    emit({ kind: 'stepOk', phase: '提示词组装', detail: `模板 ${template.length} 字符` });
+
+    // ── 3. 模型分析（含自修正重试）──
     const caller = opts.caller ?? createVlmCaller(cfg);
     const rounds = cfg.vlm.maxRetry + 1;
+    emit({
+      kind: 'stepStart',
+      phase: '模型分析',
+      detail: `model=${cfg.vlm.model} 最多 ${rounds} 轮`,
+    });
 
     let attemptOutput = '';
     let lastErrors = ['模型未返回任何内容'];
     let modelRawOutput = '';
+    let parsedSteps: Step[] | null = null;
 
     for (let i = 0; i < rounds; i += 1) {
+      const roundStart = new Date();
+      const timer = startRoundTimer({ round: i + 1, rounds });
       const userPrompt = i === 0 ? prompt : `${prompt}\n\n注意：上一轮输出未通过校验，错误如下：\n${lastErrors.join('\n')}\n请重新生成完整的 JSON。`;
-      modelRawOutput = await caller(cfg, {
-        mode: cfg.vlm.inputMode,
-        frames: frames.framePaths,
-        videoPath: opts.videoPath,
-        prompt: userPrompt,
-      });
+      const record = (status: 'ok' | 'invalid' | 'error', elapsedMs: number) => {
+        analysis.rounds.push({
+          round: i + 1,
+          status,
+          started_at: roundStart.toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_ms: elapsedMs,
+        });
+      };
+      try {
+        modelRawOutput = await caller(cfg, {
+          mode: cfg.vlm.inputMode,
+          frames: frames.framePaths,
+          videoPath: opts.videoPath,
+          prompt: userPrompt,
+        });
+      } catch (e) {
+        const elapsedMs = timer.stop().elapsedMs;
+        record('error', elapsedMs);
+        emit({ kind: 'stepFail', phase: '模型分析', reason: `第 ${i + 1}/${rounds} 轮调用异常：${errMsg(e)}（用时 ${formatDuration(elapsedMs)}）` });
+        throw e;
+      }
+      const elapsedMs = timer.stop().elapsedMs;
       attemptOutput = modelRawOutput;
       const v = parseModelOutput(modelRawOutput);
       if (v.ok) {
-        const steps = finalizeSteps(v.steps);
+        record('ok', elapsedMs);
+        emit({ kind: 'stepOk', phase: '模型分析', detail: `第 ${i + 1}/${rounds} 轮调用成功（用时 ${formatDuration(elapsedMs)}）` });
+        parsedSteps = v.steps;
+        break;
+      }
+      record('invalid', elapsedMs);
+      emit({ kind: 'stepFail', phase: '模型分析', reason: `第 ${i + 1}/${rounds} 轮输出未通过校验：${v.errors.join('；')}（用时 ${formatDuration(elapsedMs)}）` });
+      lastErrors = v.errors;
+    }
+
+    // ── 4. 结果校验与装配 ──
+    emit({ kind: 'stepStart', phase: '结果校验与装配', detail: '' });
+    try {
+      if (parsedSteps) {
+        const steps = finalizeSteps(parsedSteps);
         const session = await readSessionMeta(opts.outDir);
         const data: StepsFile = {
           version: '1.0',
@@ -110,14 +190,23 @@ export async function analyzeVideo(opts: AnalyzeOptions): Promise<AnalyzeResult>
           throw new Error(`装配后的 StepsFile 未通过严格校验：${strictCheck.errors.join('; ')}`);
         }
         const stepsPath = await writeSteps(opts.outDir, data, cfg.output.format);
+        analysis.result = 'ok';
+        emit({ kind: 'stepOk', phase: '结果校验与装配', detail: `steps.json 已写入（${steps.length} 步）` });
         return { ok: true, stepsPath, data };
       }
-      lastErrors = v.errors;
+      const reason = lastErrors.join('; ');
+      analysis.result = 'failed';
+      const failurePath = await writeFailure(opts.outDir, `模型输出连续 ${rounds} 轮未通过校验`, attemptOutput, frames.frameCount);
+      emit({ kind: 'stepOk', phase: '结果校验与装配', detail: `failure.json 已写入（原因：${reason}）` });
+      return { ok: false, failurePath, reason, rawOutput: modelRawOutput, frameCount: frames.frameCount };
+    } catch (e) {
+      emit({ kind: 'stepFail', phase: '结果校验与装配', reason: errMsg(e) });
+      throw e;
     }
-
-    const failurePath = await writeFailure(opts.outDir, `模型输出连续 ${rounds} 轮未通过校验`, attemptOutput, frames.frameCount);
-    return { ok: false, failurePath, reason: lastErrors.join('; '), rawOutput: modelRawOutput, frameCount: frames.frameCount };
   } finally {
+    // 无论成功、失败还是抛异常，都落盘本次分析的起止时间与每轮计时到 session.json
+    analysis.ended_at = new Date().toISOString();
+    await updateSessionAnalysis(opts.outDir, analysis).catch(() => {});
     // 无论成功、重试耗尽、还是 extractFrames / 模板 / VLM 调用抛异常，都会清理临时帧目录
     await fs.rm(framesDir, { recursive: true, force: true }).catch(() => {});
   }

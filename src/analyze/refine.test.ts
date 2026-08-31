@@ -5,9 +5,13 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { analyzeVideo, finalizeSteps } from './refine.js';
+import { writeSessionMeta } from '../output/writer.js';
 import { loadConfig } from '../config/env.js';
 import { validateSteps } from '../schema/steps.schema.js';
 import type { Step } from '../schema/steps.schema.js';
+import type { ProgressEvent, ProgressPrinter } from './progress.js';
+
+const quiet: ProgressPrinter = () => {};
 
 const NO_ENV = '___no_such_env_file___';
 
@@ -54,7 +58,7 @@ describe('analyzeVideo', () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
     const caller = async () => validJson;
-    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller });
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(true);
     if (r.ok) {
       const onDisk = JSON.parse(fs.readFileSync(r.stepsPath, 'utf8'));
@@ -69,7 +73,7 @@ describe('analyzeVideo', () => {
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
     const responses = ['{"steps":', 'plain text not json', validJson]; // 解析失败 → 再失败 → 成功
     const caller = async () => responses.shift() ?? validJson;
-    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller });
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(true);
   });
 
@@ -77,7 +81,7 @@ describe('analyzeVideo', () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
     const caller = async () => 'always invalid';
-    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller });
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
     expect(r.ok).toBe(false);
     if (!r.ok) {
       expect(fs.existsSync(r.failurePath)).toBe(true);
@@ -88,6 +92,122 @@ describe('analyzeVideo', () => {
     expect(fs.existsSync(path.join(outDir, 'steps.json'))).toBe(false);
   });
 
+  it('成功路径：session.json 写入 analysis 块，保留 target_url，核算 1 轮 ok', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const startedAt = new Date('2026-08-26T10:00:00');
+    await writeSessionMeta(outDir, { targetUrl: 'http://app/login', startedAt });
+    const caller = async () => validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
+    expect(r.ok).toBe(true);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    expect(session.target_url).toBe('http://app/login');
+    expect(session.started_at).toBe(startedAt.toISOString());
+    const a = session.analysis;
+    expect(a.result).toBe('ok');
+    expect(a.rounds).toHaveLength(1);
+    const round = a.rounds[0];
+    expect(round.round).toBe(1);
+    expect(round.status).toBe('ok');
+    expect(round.duration_ms).toBeGreaterThanOrEqual(0);
+    expect(Date.parse(round.ended_at)).toBeGreaterThanOrEqual(Date.parse(round.started_at));
+    expect(Date.parse(a.ended_at)).toBeGreaterThanOrEqual(Date.parse(a.started_at));
+  });
+
+  it('自修正路径在失败轮写入失败信息：首轮 invalid 次轮 ok，每轮各自结束时间', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const responses = ['{"steps":', validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
+    expect(r.ok).toBe(true);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    const rounds = session.analysis.rounds as { round: number; status: string; ended_at: string }[];
+    expect(rounds.map((x) => x.status)).toEqual(['invalid', 'ok']);
+    expect(rounds[0].ended_at).toBeTruthy();
+    expect(Date.parse(rounds[1].ended_at)).toBeGreaterThanOrEqual(Date.parse(rounds[0].ended_at));
+  });
+
+  it('全部轮次失败 → result=failed，每轮 status=invalid', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const caller = async () => 'always invalid';
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet });
+    expect(r.ok).toBe(false);
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    expect(session.analysis.result).toBe('failed');
+    expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['invalid', 'invalid', 'invalid']);
+  });
+
+  it('模型调用抛错 → analyzeVideo 抛出但 analysis 仍落盘，result=error', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const caller = async () => { throw new Error('network down'); };
+    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet })).rejects.toThrow('network down');
+    const session = JSON.parse(fs.readFileSync(path.join(outDir, 'session.json'), 'utf8'));
+    expect(session.analysis.result).toBe('error');
+    expect(session.analysis.rounds.map((x: { status: string }) => x.status)).toEqual(['error']);
+  });
+
+  it('成功路径：按 抽帧→提示词→模型→装配 顺序发进度事件，start 先于 ok，且不打码明文密钥', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const events: ProgressEvent[] = [];
+    const caller = async () => validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: (e) => events.push(e) });
+    expect(r.ok).toBe(true);
+    expect(events.map((e) => `${e.kind}:${e.phase}`)).toEqual([
+      'stepStart:视频抽帧预处理',
+      'stepOk:视频抽帧预处理',
+      'stepStart:提示词组装',
+      'stepOk:提示词组装',
+      'stepStart:模型分析',
+      'stepOk:模型分析',
+      'stepStart:结果校验与装配',
+      'stepOk:结果校验与装配',
+    ]);
+    const start0 = events[0];
+    if (start0.kind === 'stepStart') {
+      expect(start0.detail).toContain('模式=interval'); // 抽帧阶段回显 .env 实际配置
+    }
+    const modelStart = events.find((e) => e.kind === 'stepStart' && e.phase === '模型分析');
+    if (modelStart && modelStart.kind === 'stepStart') {
+      expect(modelStart.detail).toContain('model=qwen2.5-vl-max');
+      expect(modelStart.detail).toContain('最多 3 轮');
+      expect(modelStart.detail).not.toMatch(/provider=|baseUrl=|apiKey=|输入模式=|温度=/);
+    }
+    const all = events
+      .flatMap((e) => [e.kind === 'stepFail' ? e.reason : e.kind === 'stepStart' || e.kind === 'stepOk' ? e.detail : ''])
+      .join('|');
+    expect(all).not.toContain('sk-test');
+  });
+
+  it('自修正路径：首轮校验失败发 stepFail，次轮成功发 stepOk', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const events: ProgressEvent[] = [];
+    const responses = ['{"steps":', validJson];
+    const caller = async () => responses.shift() ?? validJson;
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: (e) => events.push(e) });
+    expect(r.ok).toBe(true);
+    const modelFails = events.filter((e) => e.kind === 'stepFail' && e.phase === '模型分析');
+    expect(modelFails).toHaveLength(1);
+    expect(modelFails[0].kind === 'stepFail' && modelFails[0].reason).toContain('第 1/3 轮');
+    expect(events.filter((e) => e.kind === 'stepOk' && e.phase === '模型分析')).toHaveLength(1);
+  });
+
+  it('全部轮次失败：每轮发 stepFail，装配阶段输出 failure.json', async () => {
+    const video = makeTestVideo();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
+    const events: ProgressEvent[] = [];
+    const caller = async () => 'always invalid';
+    const r = await analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: (e) => events.push(e) });
+    expect(r.ok).toBe(false);
+    expect(events.filter((e) => e.kind === 'stepFail' && e.phase === '模型分析')).toHaveLength(3);
+    const assembleOk = events.find((e) => e.kind === 'stepOk' && e.phase === '结果校验与装配');
+    expect(assembleOk && assembleOk.kind === 'stepOk' && assembleOk.detail).toContain('failure.json');
+  });
+
   it('模型调用抛错时清理临时帧目录', async () => {
     const video = makeTestVideo();
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oprec-ana-'));
@@ -95,7 +215,7 @@ describe('analyzeVideo', () => {
       fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('oprec-frames-')).length;
     const before = prefixCount();
     const caller = async () => { throw new Error('network down'); };
-    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller })).rejects.toThrow('network down');
+    await expect(analyzeVideo({ outDir, videoPath: video, cfg, caller, onProgress: quiet })).rejects.toThrow('network down');
     // 并发测试文件可能同时创建同前缀目录（各自 finally 自行清理），轮询直至收敛到 before 数量；
     // 真实泄漏永远不会自清 → 轮询超时失败，断言仍能抓住泄漏
     await expect.poll(prefixCount, { timeout: 3000 }).toBeLessThanOrEqual(before);

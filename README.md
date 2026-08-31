@@ -29,7 +29,7 @@ npm run cli -- analyze --video out/<session>/recording/video.mp4
     │   └── screens/       # 有效操作截图（v1.0 仅留档，不参与分析）
     ├── steps.json         # 结构化操作步骤（分析成功）
     ├── failure.json       # 分析失败原始输出（失败时）
-    └── session.json       # 录制会话元信息
+    └── session.json       # 录制会话元信息 + 分析块（analysis：起止时间、每轮状态/起止时间/时长）
 
 ## 配置
 
@@ -45,7 +45,7 @@ npm run cli -- analyze --video out/<session>/recording/video.mp4
 
 ## 退出码
 
-0 成功 / 1 一般失败 / 2 配置错误。stdout 输出稳定行（`output:` / `video:` / `screenshots:` / `steps:` / `failure:`），诊断日志走 stderr，`--verbose` 开启。
+0 成功 / 1 一般失败 / 2 配置错误。stdout 输出稳定行（`output:` / `video:` / `screenshots:` / `steps:` / `failure:`）；**stderr 默认打印分析分步进度日志**（抽帧预处理 → 提示词组装 → 模型分析 → 结果校验与装配，每步「开始 / 完成」都带实际 .env 配置回显，`VLM_API_KEY` 只显示打码），无需 `--verbose`；模型每轮思考时终端同步计时并每秒刷新（`⏱ 第 N/M 轮思考中：已用时 Xs`），每轮结束时打印该轮耗时；`--verbose` 仅追加额外调试信息。
 
 ## 开发
 
