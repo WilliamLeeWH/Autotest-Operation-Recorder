@@ -7,7 +7,7 @@ describe('prompt', () => {
     expect(t).toContain('{{FRAME_COUNT}}');
     expect(t).toContain('action_type');
     expect(t).toContain('midscene');
-    expect(t).toContain('只输出');
+    expect(t).toContain('JSON.parse');
     expect(t).toContain('assertion');
     expect(t).toContain('aiAssert');
     // 录制侧新增鼠标点击高亮：模板必须告知模型其含义
@@ -20,6 +20,7 @@ describe('prompt', () => {
     const t = await loadPromptTemplate('video');
     expect(t).toContain('action_type');
     expect(t).toContain('midscene');
+    expect(t).toContain('JSON.parse');
     expect(t).toContain('assertion');
     expect(t).toContain('aiAssert');
     expect(t).toContain('红色');
