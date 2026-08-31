@@ -7,7 +7,7 @@ export const CLICK_HIGHLIGHT_INJECT_SCRIPT = `
 (() => {
   const RING_SCALE_END = 2.2;  // 圆环从 36px 扩散到约 79px
   const RING_MS = 1150;        // 圆环扩散动画时长
-  const HOLD_MS = 1250;        // 高亮总保留时长，动画结束后整体移除
+  const HOLD_MS = 1155;        // 高亮总保留时长，动画结束后整体移除
   let activeEl = null;
 
   const make = (x, y) => {
