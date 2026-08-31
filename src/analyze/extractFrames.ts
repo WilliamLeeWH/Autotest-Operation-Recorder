@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { ensureFfmpeg, probeVideoDurationMs } from '../lib/ffmpeg.js';
 
 const execFileAsync = promisify(execFile);
-const RAW_FRAME_CAP = 200; // ffmpeg 侧粗上限，避免超大视频产出巨量框架
+const RAW_FRAME_CAP = 400; // ffmpeg 侧粗上限，避免超大视频产出巨量框架
 
 export interface ExtractFramesOptions {
   videoPath: string;
